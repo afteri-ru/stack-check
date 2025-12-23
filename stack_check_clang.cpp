@@ -59,79 +59,15 @@ namespace {
 
     class TrustPlugin;
     static std::unique_ptr<TrustPlugin> plugin;
-  
-    /**
-     * @def TrustLogger
-     * 
-     * Container for addeded attributes with a processing mark 
-     * (so as not to miss unprocessed attributes) and plugin analyzer log.
-     */
 
-    class TrustLogger {
-        const CompilerInstance &m_ci;
-        std::map<SourceLocation, bool> m_attrs;
-        std::vector<std::pair<SourceLocation, std::string>> m_logs;
-    public:
-
-        TrustLogger(const CompilerInstance &ci) : m_ci(ci) {
+    static std::string LocToStr(const SourceLocation &loc, const SourceManager &sm) {
+        std::string str = loc.printToString(sm);
+        size_t pos = str.find(' ');
+        if (pos == std::string::npos) {
+            return str;
         }
-
-        void Log(SourceLocation loc, std::string str) {
-            m_logs.push_back({std::move(loc), std::move(str)});
-        }
-
-        inline void AttrAdd(SourceLocation loc) {
-            assert(loc.isValid());
-            m_attrs.emplace(loc, false);
-        }
-
-        void AttrComplete(SourceLocation loc) {
-            auto found = m_attrs.find(loc);
-            if (found == m_attrs.end()) {
-                Log(loc, "Attribute location not found!");
-            } else {
-                found->second = true;
-            }
-        }
-
-        static std::string LocToStr(const SourceLocation &loc, const SourceManager &sm) {
-            std::string str = loc.printToString(sm);
-            size_t pos = str.find(' ');
-            if (pos == std::string::npos) {
-                return str;
-            }
-            return str.substr(0, pos);
-        }
-
-        inline std::string LocToStr(const SourceLocation &loc) {
-            return LocToStr(loc, m_ci.getSourceManager());
-        }
-
-        void Dump(raw_ostream & out) {
-
-            // For simple copy-paste into unit tests
-
-            //            for (auto &elem : m_logs) {
-            //                out << "    \"" << elem.second.substr(0, elem.second.find(" ", 7)) << "\",\n";
-            //            }
-            //            out << "\n";
-
-
-            out << TRUST_KEYWORD_START_LOG;
-            for (auto &elem : m_logs) {
-                out << LocToStr(elem.first);
-                out << ": " << elem.second << "\n";
-            }
-            for (auto &elem : m_attrs) {
-                if (!elem.second) {
-                    out << LocToStr(elem.first);
-                    out << ": unprocessed attribute!\n";
-                }
-            }
-        }
-    };
-
-    static std::unique_ptr<TrustLogger> logger;
+        return str.substr(0, pos);
+    }    
 
     /**
      * @def TrustAttrInfo
@@ -182,12 +118,6 @@ namespace {
             // Add empty second argument
             if (Attr.getNumArgs() == 1) {
                 ArgsBuf.push_back(StringLiteral::CreateEmpty(S.Context, 0, 0, 0));
-            }
-
-
-            // Add attribute location to check after plugin processing
-            if (logger) {
-                logger->AttrAdd(Attr.getLoc());
             }
 
             return AnnotateAttr::Create(S.Context, TO_STR(TRUST_KEYWORD_ATTRIBUTE), ArgsBuf.data(), ArgsBuf.size(), Attr.getRange());
@@ -732,21 +662,21 @@ namespace {
         }
 
         void LogOnly(SourceLocation loc, std::string str, SourceLocation hash = SourceLocation(), LogLevel level = LogLevel::INFO) {
-            if (logger) {
-                const char * prefix = nullptr;
-                switch (level) {
-                    case LogLevel::INFO:
-                        prefix = "log";
-                        break;
-                    case LogLevel::WARN:
-                        prefix = "warn";
-                        break;
-                    case LogLevel::ERR:
-                        prefix = "err";
-                        break;
-                }
-                logger->Log(loc, std::format("#{} #{} {}", prefix, hash.isValid() ? LogPos(hash) : LogPos(loc), str));
-            }
+            // if (logger) {
+            //     const char * prefix = nullptr;
+            //     switch (level) {
+            //         case LogLevel::INFO:
+            //             prefix = "log";
+            //             break;
+            //         case LogLevel::WARN:
+            //             prefix = "warn";
+            //             break;
+            //         case LogLevel::ERR:
+            //             prefix = "err";
+            //             break;
+            //     }
+            //     logger->Log(loc, std::format("#{} #{} {}", prefix, hash.isValid() ? LogPos(hash) : LogPos(loc), str));
+            // }
         }
 
         void LogWarning(SourceLocation loc, std::string str, SourceLocation hash = SourceLocation()) {
@@ -877,7 +807,7 @@ namespace {
                 } else if (first.compare(WARNING_TYPE) == 0) {
                     m_warning_type.emplace(second.begin());
                 } else if (first.compare(SHARED_TYPE) == 0) {
-                    m_shared_type.emplace(second.begin(), TrustLogger::LocToStr(loc, m_CI.getSourceManager()));
+                    m_shared_type.emplace(second.begin(), LocToStr(loc, m_CI.getSourceManager()));
                 } else if (first.compare(AUTO_TYPE) == 0) {
                     m_auto_type.emplace(second.begin());
                 } else if (first.compare(INVALIDATE_FUNC) == 0) {
@@ -909,7 +839,7 @@ namespace {
                 return std::get<std::string>(loc);
             }
             assert(std::holds_alternative<const CXXRecordDecl *>(loc));
-            return TrustLogger::LocToStr(std::get<const CXXRecordDecl *>(loc)->getLocation(), m_CI.getSourceManager());
+            return LocToStr(std::get<const CXXRecordDecl *>(loc)->getLocation(), m_CI.getSourceManager());
         }
 
         void setCyclicAnalysis(bool status) {
@@ -1310,9 +1240,9 @@ namespace {
 
                         if (pair.first.compare(UNSAFE) == 0) {
 
-                            if (logger) {
-                                logger->AttrComplete(elem->getLocation());
-                            }
+                            // if (logger) {
+                            //     logger->AttrComplete(elem->getLocation());
+                            // }
 
                             LogOnly(attrStmt->getBeginLoc(), "Unsafe statement", attrStmt->getBeginLoc());
 
@@ -1413,9 +1343,9 @@ namespace {
 
                 }
 
-                if (logger) {
-                    logger->AttrComplete(attr->getLocation());
-                }
+                // if (logger) {
+                //     logger->AttrComplete(attr->getLocation());
+                // }
 
             }
         }
@@ -1442,9 +1372,9 @@ namespace {
                             m_dump_location = decl->getLocation();
                         }
 
-                        if (logger) {
-                            logger->AttrComplete(attr->getLocation());
-                        }
+                        // if (logger) {
+                        //     logger->AttrComplete(attr->getLocation());
+                        // }
 
                     } else if (attr_args.first.compare(PRINT_DUMP) == 0) {
 
@@ -1452,9 +1382,9 @@ namespace {
                             return;
                         }
 
-                        if (logger) {
-                            logger->AttrComplete(attr->getLocation());
-                        }
+                        // if (logger) {
+                        //     logger->AttrComplete(attr->getLocation());
+                        // }
 
                         llvm::outs() << m_scopes.Dump(attr->getLocation(), attr_args.second);
                     }
@@ -2223,15 +2153,15 @@ namespace {
             context.getParentMapContext().setTraversalKind(clang::TraversalKind::TK_IgnoreUnlessSpelledInSource);
             plugin->TraverseDecl(context.getTranslationUnitDecl());
 
-            if (logger) {
+            // if (logger) {
 
-                llvm::outs().flush();
-                llvm::errs().flush();
+            //     llvm::outs().flush();
+            //     llvm::errs().flush();
 
-                logger->Dump(llvm::outs());
-                llvm::outs() << "\n";
-                plugin->dump(llvm::outs());
-            }
+            //     logger->Dump(llvm::outs());
+            //     llvm::outs() << "\n";
+            //     plugin->dump(llvm::outs());
+            // }
         }
     };
 
@@ -2300,15 +2230,15 @@ namespace {
                 std::string message = plugin->processArgs(first, second, SourceLocation());
 
                 if (!message.empty()) {
-                    if (first.compare("log") == 0) {
+                //     if (first.compare("log") == 0) {
 
-                        logger = std::unique_ptr<TrustLogger>(new TrustLogger(CI));
-                        PrintColor(llvm::outs(), "Enable dump and process logger");
+                //         logger = std::unique_ptr<TrustLogger>(new TrustLogger(CI));
+                //         PrintColor(llvm::outs(), "Enable dump and process logger");
 
-                    } else {
+                //     } else {
                         llvm::errs() << "Unknown plugin argument: '" << elem << "'!\n";
                         return false;
-                    }
+                    // }
                 } else {
                     if (first.compare("level") == 0) {
                         // ok
