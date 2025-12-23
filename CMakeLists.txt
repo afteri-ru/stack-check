@@ -16,6 +16,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0")
 find_package(LLVM REQUIRED CONFIG)
 find_package(GTest REQUIRED)
 find_package(PkgConfig REQUIRED)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 # Определим функцию для установки общих свойств целей
 function(set_common_target_properties TARGET_NAME)
@@ -122,9 +123,10 @@ add_dependencies(stack-check-test-O3 trusted-cpp_clang)
 add_custom_target(run_tests
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/stack-check-test-O0
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/stack-check-test-O3
-    DEPENDS stack-check-test-O0 stack-check-test-O3
+    COMMAND ${PYTHON_EXECUTABLE} /usr/lib/llvm-21/build/utils/lit/lit.py ${CMAKE_CURRENT_SOURCE_DIR}/test -v
+    DEPENDS stack-check-test-O0 stack-check-test-O3 trusted-cpp_clang
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test
-    COMMENT "Running trust unit tests with both -O0 and -O3 optimization levels"
+    COMMENT "Running trust unit tests with both -O0 and -O3 optimization levels and LIT tests"
 )
 
 # Создадим псевдоним для обратной совместимости
