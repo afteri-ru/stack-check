@@ -1,35 +1,50 @@
-cmake_minimum_required(VERSION 3.14)
-project(StackInfo)
+cmake_minimum_required(VERSION 3.20)
 
-# Установка стандарт C++17
-set(CMAKE_CXX_STANDARD 17)
+project(trust-cpp VERSION 1.0.0 LANGUAGES C CXX)
+
+# Используем clang++ напрямую, как в исходных Makefile
+set(CMAKE_CXX_COMPILER clang++-21)
+
+# Установим стандарт C++20, как в оригинальном Makefile
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Установка компилятора clang
-set(CMAKE_CXX_COMPILER clang++)
-set(CMAKE_C_COMPILER clang)
+# Добавим флаги оптимизации
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0")
 
-# Опции компиляции
-set(CMAKE_CXX_FLAGS "-Wall -Wextra -pedantic -O0")
-
-# Поиск Google Test
+# Найдем необходимые компоненты
+find_package(LLVM REQUIRED CONFIG)
 find_package(GTest REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(YAML_CPP REQUIRED yaml-cpp)
 
-# Создание библиотеки stack_info
-add_library(stack_info stack_info.cpp)
+# Определим функцию для установки общих свойств целей
+function(set_common_target_properties TARGET_NAME)
+    set_target_properties(${TARGET_NAME} PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+    )
+endfunction()
 
-# Создание исполняемого файла для тестов
-add_executable(stack_info_test test.cpp)
 
-# Линковка библиотек
-target_link_libraries(stack_info_test stack_info GTest::gtest GTest::gtest_main pthread)
+# Определим функцию для анализа файлов с использованием плагина
+function(add_trust_analysis_command SOURCE_FILE OUTPUT_FILE DEPENDS_TARGET ARG1 ARG2)
+    add_custom_command(TARGET ${DEPENDS_TARGET} PRE_BUILD
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -ferror-limit=500 -g -DBUILD_UNITTEST -I${CMAKE_CURRENT_SOURCE_DIR}
+                -Xclang -load -Xclang "${CMAKE_SOURCE_DIR}/trusted-cpp_clang.so"
+                -Xclang -add-plugin -Xclang trust
+                -Xclang -plugin-arg-trust -Xclang log
+                -Xclang -plugin-arg-trust -Xclang level=warning
+                ${ARG1} ${ARG2}
+                -MMD -MP -MF ${OUTPUT_FILE}.d
+                -o ${OUTPUT_FILE}.o
+                -c ${SOURCE_FILE}
+        DEPENDS ${DEPENDS_TARGET} ${DEPENDS_TARGET}_trust
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Analyzing ${SOURCE_FILE} with trust plugin"
+    )
+endfunction()
 
-# Установка свойств для Linux
-if(UNIX AND NOT APPLE)
-    target_compile_definitions(stack_info PRIVATE LINUX)
-endif()
-
-# Установка свойств для Windows
-if(WIN32)
-    target_compile_definitions(stack_info PRIVATE _WIN32)
-endif()
+# Добавим подпроекты
+add_subdirectory(plugin)
+add_subdirectory(test)
