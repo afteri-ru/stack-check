@@ -16,8 +16,8 @@ config.test_format = lit.formats.ShTest(not lit_config.useValgrind)
 # Суффиксы тестовых файлов
 config.suffixes = ['.c', '.cpp']
 
-# Исключаем файлы с маской "stack_info*"
-config.excludes = ['stack_info_test.cpp']
+# Исключаем файлы с маской "unit-test*"
+config.excludes = ['unit_test.cpp']
 
 # Путь к инструментам LLVM
 config.llvm_tools_dir = "/usr/lib/llvm-21/bin"

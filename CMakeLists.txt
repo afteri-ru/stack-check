@@ -30,7 +30,7 @@ endfunction()
 function(setup_test_target TARGET_NAME OPTIMIZATION_LEVEL)
     # Создадим цель для тестов
     add_executable(${TARGET_NAME}
-        test/stack_info_test.cpp
+        test/unit_test.cpp
         stack_info.cpp
     )
 
@@ -110,25 +110,25 @@ target_link_libraries(trusted-cpp_clang
 )
 
 # Создадим цель для тестов с оптимизацией -O0
-setup_test_target(stack-check-test-O0 -O0)
+setup_test_target(uint-test-O0 -O0)
 
 # Создадим цель для тестов с оптимизацией -O3
-setup_test_target(stack-check-test-O3 -O3)
+setup_test_target(uint-test-O3 -O3)
 
 # Убедимся, что плагин собран перед запуском тестов
-add_dependencies(stack-check-test-O0 trusted-cpp_clang)
-add_dependencies(stack-check-test-O3 trusted-cpp_clang)
+add_dependencies(uint-test-O0 trusted-cpp_clang)
+add_dependencies(uint-test-O3 trusted-cpp_clang)
 
 # Создадим цель для запуска тестов
 add_custom_target(run_tests
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/stack-check-test-O0
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/stack-check-test-O3
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/uint-test-O0
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/uint-test-O3
     COMMAND ${PYTHON_EXECUTABLE} /usr/lib/llvm-21/build/utils/lit/lit.py ${CMAKE_CURRENT_SOURCE_DIR}/test -v
-    DEPENDS stack-check-test-O0 stack-check-test-O3 trusted-cpp_clang
+    DEPENDS uint-test-O0 uint-test-O3 trusted-cpp_clang
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test
     COMMENT "Running trust unit tests with both -O0 and -O3 optimization levels and LIT tests"
 )
 
 # Создадим псевдоним для обратной совместимости
-add_custom_target(stack-check-test)
-add_dependencies(stack-check-test stack-check-test-O0)
+add_custom_target(uint-test)
+add_dependencies(uint-test uint-test-O0 uint-test-O3)
