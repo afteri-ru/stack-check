@@ -21,6 +21,7 @@
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 
 #include "clang/Lex/PreprocessorOptions.h"
+#include <charconv>
 
 #pragma clang attribute push
 #pragma clang diagnostic ignored "-Wdeprecated-anon-enum-enum-conversion"
@@ -59,6 +60,9 @@ namespace {
 
     class TrustPlugin;
     static std::unique_ptr<TrustPlugin> plugin;
+    static bool is_verbose = false;
+
+    static void Verbose(SourceLocation loc, std::string_view str);
 
     static std::string LocToStr(const SourceLocation &loc, const SourceManager &sm) {
         std::string str = loc.printToString(sm);
@@ -94,50 +98,54 @@ namespace {
 
         AnnotateAttr * CreateAttr(Sema &S, const ParsedAttr &Attr) const {
 
-            if (Attr.getNumArgs() < 1 || Attr.getNumArgs() > 3) {
-
+            if (Attr.getNumArgs()) {
                 S.Diag(Attr.getLoc(), S.getDiagnostics().getCustomDiagID(
                         DiagnosticsEngine::Error,
-                        "The attribute '" TO_STR(TRUST_KEYWORD_ATTRIBUTE) "' expects two or three string literals as arguments."));
+                        "The attribute '" TO_STR(TRUST_KEYWORD_ATTRIBUTE) "' does not support arguments."));
 
                 return nullptr;
             }
 
-            SmallVector<Expr *, 4> ArgsBuf;
-            for (unsigned i = 0; i < Attr.getNumArgs(); i++) {
-
-                if (!dyn_cast<StringLiteral>(Attr.getArgAsExpr(i)->IgnoreParenCasts())) {
-                    S.Diag(Attr.getLoc(), S.getDiagnostics().getCustomDiagID(
-                            DiagnosticsEngine::Error, "Expected argument as a string literal"));
-                    return nullptr;
-                }
-
-                ArgsBuf.push_back(Attr.getArgAsExpr(i));
-            }
-
-            // Add empty second argument
-            if (Attr.getNumArgs() == 1) {
-                ArgsBuf.push_back(StringLiteral::CreateEmpty(S.Context, 0, 0, 0));
-            }
-
-            return AnnotateAttr::Create(S.Context, TO_STR(TRUST_KEYWORD_ATTRIBUTE), ArgsBuf.data(), ArgsBuf.size(), Attr.getRange());
+            return AnnotateAttr::Create(S.Context, TO_STR(TRUST_KEYWORD_ATTRIBUTE), nullptr, 0, Attr.getRange());
         }
 
-        AttrHandling handleDeclAttribute(Sema &S, Decl *D, const ParsedAttr &Attr) const override {
-            if (auto attr = CreateAttr(S, Attr)) {
-                D->addAttr(attr);
-                return AttributeApplied;
+        AttrHandling handleDeclAttribute(Sema &S, Decl *D, const ParsedAttr &attr) const override {
+
+            if (const CXXMethodDecl * method = dyn_cast<CXXMethodDecl>(D)) {
+                Verbose(attr.getLoc(), std::format("Apply attr '" TO_STR(TRUST_KEYWORD_ATTRIBUTE) "' to {}", method->getQualifiedNameAsString()));
+            } else if(const FunctionDecl * func = dyn_cast<FunctionDecl>(D)){
+                Verbose(attr.getLoc(), std::format("Apply attr '" TO_STR(TRUST_KEYWORD_ATTRIBUTE) "' to {}", 
+                func->getQualifiedNameAsString()));
+            } else {
+
+                auto DB = S.getDiagnostics().Report(attr.getLoc(), 
+                    S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error, 
+                    "The attribute '" TO_STR(TRUST_KEYWORD_ATTRIBUTE) "' for '%0' is not applicable."));
+                DB.AddString(D->getDeclKindName());            
+
+                // S.Diag(attr.getLoc(), S.getDiagnostics().getCustomDiagID(
+                //         DiagnosticsEngine::Error,
+                //         "The attribute [[" TO_STR(TRUST_KEYWORD_ATTRIBUTE) "]] for '%0' is not applicable."));
+                //         // .AddString(D->getDeclKindName();
+
+                return AttributeNotApplied;
+
             }
+            D->addAttr(CreateAttr(S, attr));
+            return AttributeApplied;
+        }
+
+        AttrHandling handleStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &attr, class Attr *&Result) const override {
+            
+            St->dump();
+
+
+            S.Diag(attr.getLoc(), S.getDiagnostics().getCustomDiagID(
+                    DiagnosticsEngine::Error,
+                    "The attribute '" TO_STR(TRUST_KEYWORD_ATTRIBUTE) "' is not applicable."));
+
             return AttributeNotApplied;
         }
-
-        AttrHandling handleStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &Attr, class Attr *&Result) const override {
-            if ((Result = CreateAttr(S, Attr))) {
-                return AttributeApplied;
-            }
-            return AttributeNotApplied;
-        }
-
     };
 
     /*
@@ -2230,15 +2238,13 @@ namespace {
                 std::string message = plugin->processArgs(first, second, SourceLocation());
 
                 if (!message.empty()) {
-                //     if (first.compare("log") == 0) {
-
-                //         logger = std::unique_ptr<TrustLogger>(new TrustLogger(CI));
-                //         PrintColor(llvm::outs(), "Enable dump and process logger");
-
-                //     } else {
+                     if (first.compare("verbose") == 0 || first.compare("v") == 0) {
+                        is_verbose = true; 
+                         PrintColor(llvm::outs(), "Enable verbose mode");
+                     } else {
                         llvm::errs() << "Unknown plugin argument: '" << elem << "'!\n";
                         return false;
-                    // }
+                    }
                 } else {
                     if (first.compare("level") == 0) {
                         // ok
@@ -2252,7 +2258,16 @@ namespace {
             return true;
         }
     };
+
+
+    void Verbose(SourceLocation loc, std::string_view str) {
+        if(is_verbose && plugin){
+            llvm::outs() << LocToStr(loc, plugin->m_CI.getSourceManager()) << ": verbose: " << str.begin() << "\n";
+        }
+    }
+
 }
+
 
 static ParsedAttrInfoRegistry::Add<TrustAttrInfo> A(TO_STR(TRUST_KEYWORD_ATTRIBUTE), "Memory safety plugin control attribute");
 static FrontendPluginRegistry::Add<TrustPluginASTAction> S(TO_STR(TRUST_KEYWORD_ATTRIBUTE), "Memory safety plugin");
