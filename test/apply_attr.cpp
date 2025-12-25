@@ -1,5 +1,9 @@
-// RUN: not %clangxx -std=c++20 -fsyntax-only -Xclang -load -Xclang %shlibdir/trusted-cpp_clang.so -Xclang -add-plugin -Xclang trust -Xclang -plugin-arg-trust -Xclang verbose  %s 2>&1 | FileCheck %s
-
+// RUN: not  \
+// RUN: %clangxx -std=c++20 -fsyntax-only \
+// RUN: -Xclang -load -Xclang %shlibdir/trusted-cpp_clang.so \
+// RUN: -Xclang -add-plugin -Xclang trust \
+// RUN: -Xclang -plugin-arg-trust -Xclang verbose  %s 2>&1  \
+// RUN: | FileCheck %s
 
 // CHECK: Enable verbose mode
 
@@ -11,7 +15,7 @@ void correct_function() {
 
 // Правильное использование атрибута - на методе класса
 class CorrectClass {
-public:
+  public:
     [[trust]]
     void correct_method() {
         // CHECK: {{.*}}: verbose: Apply attr 'trust' to CorrectClass::correct_method
@@ -32,7 +36,7 @@ class IncorrectClass {
 
 // Неправильное использование атрибута - в пространстве имен
 namespace [[trust]] IncorrectNamespace {
-    // CHECK: {{.*}}: error: The attribute 'trust' for 'Namespace' is not applicable.
+// CHECK: {{.*}}: error: The attribute 'trust' for 'Namespace' is not applicable.
 }
 
 // Неправильное использование атрибута - на типе
