@@ -27,10 +27,10 @@ function(set_common_target_properties TARGET_NAME)
 endfunction()
 
 # Определим функцию для настройки целей тестов
-function(setup_test_target TARGET_NAME OPTIMIZATION_LEVEL)
+function(setup_test_target TARGET_NAME TEST_FILE OPTIMIZATION_LEVEL IS_UNIT_TEST)
     # Создадим цель для тестов
     add_executable(${TARGET_NAME}
-        test/unit_test.cpp
+        ${TEST_FILE}
         stack_info.cpp
     )
 
@@ -42,11 +42,8 @@ function(setup_test_target TARGET_NAME OPTIMIZATION_LEVEL)
     # Используем общую функцию для установки свойств
     set_common_target_properties(${TARGET_NAME})
 
-    target_compile_definitions(${TARGET_NAME} PRIVATE
-        BUILD_UNITTEST
-    )
-
     target_compile_options(${TARGET_NAME} PRIVATE
+        -g
         ${OPTIMIZATION_LEVEL}
     )
 
@@ -54,11 +51,20 @@ function(setup_test_target TARGET_NAME OPTIMIZATION_LEVEL)
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
 
+    target_compile_definitions(${TARGET_NAME} PRIVATE
+        BUILD_UNITTEST
+    )
     target_link_libraries(${TARGET_NAME} 
-        GTest::GTest 
-        GTest::Main 
         pthread
     )
+
+    # Добавим определение BUILD_UNITTEST и библиотеки только для unit-тестов
+    if(IS_UNIT_TEST)
+        target_link_libraries(${TARGET_NAME} 
+            GTest::GTest 
+            GTest::Main 
+        )
+    endif()
 endfunction()
 
 # # Определим функцию для анализа файлов с использованием плагина
@@ -110,21 +116,39 @@ target_link_libraries(trusted-cpp_clang
 )
 
 # Создадим цель для тестов с оптимизацией -O0
-setup_test_target(uint-test-O0 -O0)
+setup_test_target(uint-test-O0 test/unit_test.cpp -O0 TRUE)
+add_dependencies(uint-test-O0 trusted-cpp_clang)
 
 # Создадим цель для тестов с оптимизацией -O3
-setup_test_target(uint-test-O3 -O3)
-
-# Убедимся, что плагин собран перед запуском тестов
-add_dependencies(uint-test-O0 trusted-cpp_clang)
+setup_test_target(uint-test-O3 test/unit_test.cpp -O3 TRUE)
 add_dependencies(uint-test-O3 trusted-cpp_clang)
+
+# Создадим цель для speed-тестов с оптимизацией -O0
+setup_test_target(speed-test-O0 test/speed_test.cpp -O0 FALSE)
+add_dependencies(speed-test-O0 trusted-cpp_clang)
+
+# Создадим цель для speed-тестов с оптимизацией -O3
+setup_test_target(speed-test-O3 test/speed_test.cpp -O3 FALSE)
+add_dependencies(speed-test-O3 trusted-cpp_clang)
 
 # Создадим цель для запуска тестов
 add_custom_target(run_tests
+    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/uint-test-O0
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/uint-test-O0
+
+    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/uint-test-O3
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/uint-test-O3
+
+    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/speed-test-O0
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/speed-test-O0
+
+    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/speed-test-O3
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/speed-test-O3
+
+    COMMAND echo Run: LLVM Integrated Tester in ${CMAKE_CURRENT_SOURCE_DIR}/test
     COMMAND ${PYTHON_EXECUTABLE} /usr/lib/llvm-21/build/utils/lit/lit.py ${CMAKE_CURRENT_SOURCE_DIR}/test -v
-    DEPENDS uint-test-O0 uint-test-O3 trusted-cpp_clang
+
+    DEPENDS uint-test-O0 uint-test-O3 speed-test-O0 speed-test-O3 trusted-cpp_clang
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test
     COMMENT "Running trust unit tests with both -O0 and -O3 optimization levels and LIT tests"
 )
