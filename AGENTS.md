@@ -13,5 +13,6 @@
 - Upon task completion, the final report should include the model name, the initial task, and all summary statistics for interactions with the model.
 
 ## File Rules
+- `stack_info.h` and `stack_info.cpp` contains stack overflow checker.
 - `stack_check_clang.cpp` is a clang plugin designed for compilation into a dynamic library.
-- `stack_info_test.cpp` contains tests created using the Google Test Framework, designed to be compiled into an executable program.
+- Dir `test` contains all test programma and any test files for LIT and Google Test Framework.
