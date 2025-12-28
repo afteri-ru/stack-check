@@ -4,7 +4,9 @@
 #include <iostream>
 #include <vector>
 
-#include "stack_info.h"
+#include "stack_check.h"
+
+using namespace trust;
 
 // Глобальные переменные для отслеживания глубины рекурсии и количества вызовов
 int currentDepth = 0;
@@ -151,13 +153,40 @@ int main(int argc, char *argv[]) {
     output.reserve(count);
 
     // ---------------------------------------------------------------------
+    // Warming up memory and cache
+    int foundCount = 0;
+    mpz_class number = startNumber;
+    try {
+        while (foundCount < count) {
+            bool isNumberPrime = isPrimeSafe(number);
+
+            // Выводим простые числа
+            if (isNumberPrime) {
+                output.push_back(number);
+                foundCount++;
+            }
+
+            number++;
+        }
+
+    } catch (stack_overflow &stack) {
+        std::cout << "Stack overflow exception at: " << maxDepth_safe << " call depth." << std::endl;
+        std::cout << "Stack top: " << stack_info::addr.top << " bottom: " << stack_info::addr.bottom
+                  << " (stack size: " << stack_info::get_stack_size() << ")" << std::endl;
+        std::cout << "Query size: " << stack.m_size << " end frame: " << stack.m_frame
+                  << " (free space: " << (static_cast<char *>(stack.m_frame) - static_cast<char *>(stack_info::addr.bottom)) << ")"
+                  << std::endl;
+        return 1;
+    }
+
+    // ---------------------------------------------------------------------
 
     // Засекаем время начала выполнения
     auto start_safe = std::chrono::high_resolution_clock::now();
 
     // Ищем заданное количество простых чисел, начиная с начального
-    int foundCount = 0;
-    mpz_class number = startNumber;
+    foundCount = 0;
+    number = startNumber;
 
     try {
         while (foundCount < count) {
@@ -174,6 +203,11 @@ int main(int argc, char *argv[]) {
 
     } catch (stack_overflow &stack) {
         std::cout << "Stack overflow exception at: " << maxDepth_safe << " call depth." << std::endl;
+        std::cout << "Stack top: " << stack_info::addr.top << " bottom: " << stack_info::addr.bottom
+                  << " (stack size: " << stack_info::get_stack_size() << ")" << std::endl;
+        std::cout << "Query size: " << stack.m_size << " end frame: " << stack.m_frame
+                  << " (free space: " << (static_cast<char *>(stack.m_frame) - static_cast<char *>(stack_info::addr.bottom)) << ")"
+                  << std::endl;
         return 1;
     }
 

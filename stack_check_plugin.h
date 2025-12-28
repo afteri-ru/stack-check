@@ -32,47 +32,38 @@
  */
 
 
-#define TRUST_KEYWORD_ATTRIBUTE trust
-#define TRUST_KEYWORD_PROFILE "profile"
-#define TRUST_KEYWORD_STATUS "status"
-#define TRUST_KEYWORD_UNSAFE "unsafe"
-#define TRUST_KEYWORD_PRINT_AST "print-ast"
-#define TRUST_KEYWORD_PRINT_DUMP "print-dump"
-#define TRUST_KEYWORD_BASELINE "baseline"
+#define STACK_CHECK_KEYWORD_ATTRIBUTE stack_check
+#define STACK_CHECK_KEYWORD_PROFILE "profile"
+#define STACK_CHECK_KEYWORD_STATUS "status"
+#define STACK_CHECK_KEYWORD_UNSAFE "unsafe"
+#define STACK_CHECK_KEYWORD_PRINT_AST "print-ast"
 
-#define TRUST_KEYWORD_START_LOG "#trust-log\n"
-#define TRUST_KEYWORD_START_DUMP "#trust-dump\n"
-
-#define TRUST_KEYWORD_ENABLE "enable"
-#define TRUST_KEYWORD_DISABLE "disable"
-#define TRUST_KEYWORD_PUSH "push"
-#define TRUST_KEYWORD_POP "pop"
+#define STACK_CHECK_KEYWORD_ENABLE "enable"
+#define STACK_CHECK_KEYWORD_DISABLE "disable"
+#define STACK_CHECK_KEYWORD_PUSH "push"
+#define STACK_CHECK_KEYWORD_POP "pop"
 
 // maximum diagnostic level of plugin message when error is detected in source code
-#define TRUST_KEYWORD_LEVEL "level"
-#define TRUST_KEYWORD_ERROR "error"
-#define TRUST_KEYWORD_WARNING "warning"
-#define TRUST_KEYWORD_NOTE "note"
-#define TRUST_KEYWORD_REMARK "remark"
-#define TRUST_KEYWORD_IGNORED "ignored"
-
-#define TRUST_KEYWORD_AUTO_TYPE "auto-type"
-#define TRUST_KEYWORD_SHARED_TYPE "shared-type"
-#define TRUST_KEYWORD_INVALIDATE_FUNC  "invalidate-func"
+#define STACK_CHECK_KEYWORD_LEVEL "level"
+#define STACK_CHECK_KEYWORD_ERROR "error"
+#define STACK_CHECK_KEYWORD_WARNING "warning"
+#define STACK_CHECK_KEYWORD_NOTE "note"
+#define STACK_CHECK_KEYWORD_REMARK "remark"
+#define STACK_CHECK_KEYWORD_IGNORED "ignored"
 
 
 #if defined __has_attribute
-#if __has_attribute( TRUST_KEYWORD_ATTRIBUTE )
-#define TRUSTED_ATTR(...) [[ TRUST_KEYWORD_ATTRIBUTE (__VA_ARGS__)]]
-#define TRUSTED_BASELINE(number) TRUSTED_ATTR( TRUST_KEYWORD_BASELINE, #number) void trust_stub();
+#if __has_attribute( STACK_CHECK_KEYWORD_ATTRIBUTE )
+#define STACK_CHECK_ATTR(...) [[ STACK_CHECK_KEYWORD_ATTRIBUTE (__VA_ARGS__)]]
+#define STACK_CHECK_BASELINE(number) STACK_CHECK_ATTR( STACK_CHECK_KEYWORD_BASELINE, #number) void trust_stub();
 #endif
 #endif
 
 // Disable memory safety plugin attributes 
-#ifndef TRUSTED_ATTR
-#define TRUSTED_ATTR(...)
-#define TRUSTED_BASELINE(number)
-#define TRUSTED_DISABLE
+#ifndef STACK_CHECK_ATTR
+#define STACK_CHECK_ATTR(...)
+#define STACK_CHECK_BASELINE(number)
+#define STACK_CHECK_DISABLE
 #endif
 
 #ifndef TO_STR
@@ -80,22 +71,8 @@
 #define TO_STR(ARG) TO_STR2(ARG)
 #endif
 
-#define TRUSTED_PROFILE(file) TRUSTED_ATTR(TRUST_KEYWORD_PROFILE, file)
-#define TRUSTED_STATUS(status) TRUSTED_ATTR(TRUST_KEYWORD_STATUS, status)
-#define TRUSTED_DIAG_LEVEL(level) TRUSTED_ATTR(TRUST_KEYWORD_LEVEL, level)
-#define TRUSTED TRUSTED_ATTR(TRUST_KEYWORD_UNSAFE, TO_STR(__LINE__))
-#define UNTRUSTED TRUSTED_ATTR(TRUST_KEYWORD_UNSAFE, TO_STR(__LINE__))
 
-#define TRUSTED_ERROR_TYPE(name) TRUSTED_ATTR(TRUST_KEYWORD_ERROR "-type", name)
-#define TRUSTED_WARNING_TYPE(name) TRUSTED_ATTR(TRUST_KEYWORD_WARNING "-type", name)
-#define TRUSTED_AUTO_TYPE(name) TRUSTED_ATTR(TRUST_KEYWORD_AUTO_TYPE, name)
-#define TRUSTED_SHARED_TYPE(name) TRUSTED_ATTR(TRUST_KEYWORD_SHARED_TYPE, name)
-#define TRUSTED_INVALIDATE_FUNC(name) TRUSTED_ATTR(TRUST_KEYWORD_INVALIDATE_FUNC, name)
-
-#define TRUSTED_PRINT_AST(filter) TRUSTED_ATTR(TRUST_KEYWORD_PRINT_AST, filter) void trust_stub();
-#define TRUSTED_PRINT_DUMP(filter) TRUSTED_ATTR(TRUST_KEYWORD_PRINT_DUMP, filter) void trust_stub();
-
-
+#define STACK_CHECK_PRINT_AST(filter) STACK_CHECK_ATTR(STACK_CHECK_KEYWORD_PRINT_AST, filter) void trust_stub();
 
 
 

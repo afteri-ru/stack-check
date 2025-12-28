@@ -1,44 +1,44 @@
 // RUN: not  \
 // RUN: %clangxx -std=c++20 -fsyntax-only \
-// RUN: -Xclang -load -Xclang %shlibdir/trusted-cpp_clang.so \
-// RUN: -Xclang -add-plugin -Xclang trust \
-// RUN: -Xclang -plugin-arg-trust -Xclang verbose  %s 2>&1  \
+// RUN: -Xclang -load -Xclang %shlibdir/stack_check_clang.so \
+// RUN: -Xclang -add-plugin -Xclang stack_check \
+// RUN: -Xclang -plugin-arg-stack_check -Xclang verbose  %s 2>&1  \
 // RUN: | FileCheck %s
 
 // CHECK: Enable verbose mode
 
 // Правильное использование атрибута - на функции
-[[trust]]
+[[stack_check]]
 void correct_function() {
-    // CHECK: {{.*}}: verbose: Apply attr 'trust' to correct_function
+    // CHECK: {{.*}}: verbose: Apply attr 'stack_check' to correct_function
 }
 
 // Правильное использование атрибута - на методе класса
 class CorrectClass {
   public:
-    [[trust]]
+    [[stack_check]]
     void correct_method() {
-        // CHECK: {{.*}}: verbose: Apply attr 'trust' to CorrectClass::correct_method
+        // CHECK: {{.*}}: verbose: Apply attr 'stack_check' to CorrectClass::correct_method
     }
 };
 
 // Неправильное использование атрибута - на переменной
-[[trust]]
+[[stack_check]]
 int incorrect_variable = 0;
-// CHECK: {{.*}}: error: The attribute 'trust' for 'Var' is not applicable.
+// CHECK: {{.*}}: error: The attribute 'stack_check' for 'Var' is not applicable.
 
 // Неправильное использование атрибута - на поле класса
 class IncorrectClass {
-    [[trust]]
+    [[stack_check]]
     int incorrect_field;
-    // CHECK: {{.*}}: error: The attribute 'trust' for 'Field' is not applicable.
+    // CHECK: {{.*}}: error: The attribute 'stack_check' for 'Field' is not applicable.
 };
 
 // Неправильное использование атрибута - в пространстве имен
-namespace [[trust]] IncorrectNamespace {
-// CHECK: {{.*}}: error: The attribute 'trust' for 'Namespace' is not applicable.
+namespace [[stack_check]] IncorrectNamespace {
+// CHECK: {{.*}}: error: The attribute 'stack_check' for 'Namespace' is not applicable.
 }
 
 // Неправильное использование атрибута - на типе
-using InvalidType [[trust]] = int;
-// CHECK: {{.*}}: error: The attribute 'trust' for 'TypeAlias' is not applicable.
+using InvalidType [[stack_check]] = int;
+// CHECK: {{.*}}: error: The attribute 'stack_check' for 'TypeAlias' is not applicable.

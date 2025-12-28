@@ -39,7 +39,7 @@ using namespace trust;
 namespace {
 
 /**
- * @def TrustPlugin
+ * @def Stack check plugin
  *
  * The TrustPlugin class is made as a RecursiveASTVisitor template for the following reasons:
  * - AST traversal occurs from top to bottom through all leaves, which allows to dynamically create and clear context information.
@@ -87,10 +87,10 @@ struct TrustAttrInfo : public ParsedAttrInfo {
         OptArgs = 3;
 
         static constexpr Spelling S[] = {
-            {ParsedAttr::AS_GNU, TO_STR(TRUST_KEYWORD_ATTRIBUTE)},
-            {ParsedAttr::AS_C23, TO_STR(TRUST_KEYWORD_ATTRIBUTE)},
-            {ParsedAttr::AS_CXX11, TO_STR(TRUST_KEYWORD_ATTRIBUTE)},
-            {ParsedAttr::AS_CXX11, "::" TO_STR(TRUST_KEYWORD_ATTRIBUTE)},
+            {ParsedAttr::AS_GNU, TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE)},
+            {ParsedAttr::AS_C23, TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE)},
+            {ParsedAttr::AS_CXX11, TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE)},
+            {ParsedAttr::AS_CXX11, "::" TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE)},
         };
         Spellings = S;
     }
@@ -100,32 +100,32 @@ struct TrustAttrInfo : public ParsedAttrInfo {
         if (Attr.getNumArgs()) {
             S.Diag(Attr.getLoc(),
                    S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error,
-                                                      "The attribute '" TO_STR(TRUST_KEYWORD_ATTRIBUTE) "' does not support arguments."));
+                                                      "The attribute '" TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE) "' does not support arguments."));
 
             return nullptr;
         }
 
-        return AnnotateAttr::Create(S.Context, TO_STR(TRUST_KEYWORD_ATTRIBUTE), nullptr, 0, Attr.getRange());
+        return AnnotateAttr::Create(S.Context, TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE), nullptr, 0, Attr.getRange());
     }
 
     AttrHandling handleDeclAttribute(Sema &S, Decl *D, const ParsedAttr &attr) const override {
 
         if (const CXXMethodDecl *method = dyn_cast<CXXMethodDecl>(D)) {
             Verbose(attr.getLoc(),
-                    std::format("Apply attr '" TO_STR(TRUST_KEYWORD_ATTRIBUTE) "' to {}", method->getQualifiedNameAsString()));
+                    std::format("Apply attr '" TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE) "' to {}", method->getQualifiedNameAsString()));
         } else if (const FunctionDecl *func = dyn_cast<FunctionDecl>(D)) {
-            Verbose(attr.getLoc(), std::format("Apply attr '" TO_STR(TRUST_KEYWORD_ATTRIBUTE) "' to {}", func->getQualifiedNameAsString()));
+            Verbose(attr.getLoc(), std::format("Apply attr '" TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE) "' to {}", func->getQualifiedNameAsString()));
         } else {
 
             auto DB = S.getDiagnostics().Report(
                 attr.getLoc(),
                 S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error,
-                                                   "The attribute '" TO_STR(TRUST_KEYWORD_ATTRIBUTE) "' for '%0' is not applicable."));
+                                                   "The attribute '" TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE) "' for '%0' is not applicable."));
             DB.AddString(D->getDeclKindName());
 
             // S.Diag(attr.getLoc(), S.getDiagnostics().getCustomDiagID(
             //         DiagnosticsEngine::Error,
-            //         "The attribute [[" TO_STR(TRUST_KEYWORD_ATTRIBUTE) "]] for '%0' is not applicable."));
+            //         "The attribute [[" TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE) "]] for '%0' is not applicable."));
             //         // .AddString(D->getDeclKindName();
 
             return AttributeNotApplied;
@@ -139,7 +139,7 @@ struct TrustAttrInfo : public ParsedAttrInfo {
         St->dump();
 
         S.Diag(attr.getLoc(), S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error,
-                                                                 "The attribute '" TO_STR(TRUST_KEYWORD_ATTRIBUTE) "' is not applicable."));
+                                                                 "The attribute '" TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE) "' is not applicable."));
 
         return AttributeNotApplied;
     }
@@ -195,100 +195,100 @@ class LifeTimeScope : SCOPE(protected) std::deque<LifeTime> { // use deque inste
         return back().scope.index() >= 2;
     }
 
-    std::string Dump(const SourceLocation &loc, std::string_view filter) {
+    // std::string Dump(const SourceLocation &loc, std::string_view filter) {
 
-        std::string result = TRUST_KEYWORD_START_DUMP;
-        if (loc.isValid()) {
-            if (loc.isMacroID()) {
-                result += m_CI.getSourceManager().getExpansionLoc(loc).printToString(m_CI.getSourceManager());
-            } else {
-                result += loc.printToString(m_CI.getSourceManager());
-            }
-            result += ": ";
-        }
-        if (!filter.empty()) {
-            //@todo Create Dump filter
-            result += std::format(" filter '{}' not implemented!", filter.begin());
-        }
-        result += "\n";
+    //     std::string result = STACK_CHECK_KEYWORD_START_DUMP;
+    //     if (loc.isValid()) {
+    //         if (loc.isMacroID()) {
+    //             result += m_CI.getSourceManager().getExpansionLoc(loc).printToString(m_CI.getSourceManager());
+    //         } else {
+    //             result += loc.printToString(m_CI.getSourceManager());
+    //         }
+    //         result += ": ";
+    //     }
+    //     if (!filter.empty()) {
+    //         //@todo Create Dump filter
+    //         result += std::format(" filter '{}' not implemented!", filter.begin());
+    //     }
+    //     result += "\n";
 
-        // auto iter = begin();
-        // while (iter != end()) {
+    //     // auto iter = begin();
+    //     // while (iter != end()) {
 
-        //     if (iter->location.isValid()) {
-        //         result += iter->location.printToString(m_CI.getSourceManager());
+    //     //     if (iter->location.isValid()) {
+    //     //         result += iter->location.printToString(m_CI.getSourceManager());
 
-        //         std::string name = getName(iter->scope);
-        //         if (!name.empty()) {
-        //             result += " [";
-        //             result += name;
-        //             result += "]";
-        //         }
+    //     //         std::string name = getName(iter->scope);
+    //     //         if (!name.empty()) {
+    //     //             result += " [";
+    //     //             result += name;
+    //     //             result += "]";
+    //     //         }
 
-        //     } else {
-        //         result += " #static ";
-        //     }
+    //     //     } else {
+    //     //         result += " #static ";
+    //     //     }
 
-        //     result += ": ";
+    //     //     result += ": ";
 
-        //     std::string list;
-        //     auto iter_list = iter->vars.begin();
-        //     while (iter_list != iter->vars.end()) {
+    //     //     std::string list;
+    //     //     auto iter_list = iter->vars.begin();
+    //     //     while (iter_list != iter->vars.end()) {
 
-        //         if (!list.empty()) {
-        //             list += ", ";
-        //         }
+    //     //         if (!list.empty()) {
+    //     //             list += ", ";
+    //     //         }
 
-        //         list += iter_list->first;
-        //         iter_list++;
-        //     }
+    //     //         list += iter_list->first;
+    //     //         iter_list++;
+    //     //     }
 
-        //     result += list;
+    //     //     result += list;
 
-        //     std::string dep_str;
-        //     auto dep_list = iter->dependent.begin();
-        //     while (dep_list != iter->dependent.end()) {
+    //     //     std::string dep_str;
+    //     //     auto dep_list = iter->dependent.begin();
+    //     //     while (dep_list != iter->dependent.end()) {
 
-        //         if (!dep_str.empty()) {
-        //             dep_str += ", ";
-        //         }
+    //     //         if (!dep_str.empty()) {
+    //     //             dep_str += ", ";
+    //     //         }
 
-        //         dep_str += "(";
-        //         dep_str += dep_list->first;
-        //         dep_str += "=>";
-        //         dep_str += dep_list->second;
-        //         dep_str += ")";
+    //     //         dep_str += "(";
+    //     //         dep_str += dep_list->first;
+    //     //         dep_str += "=>";
+    //     //         dep_str += dep_list->second;
+    //     //         dep_str += ")";
 
-        //         dep_list++;
-        //     }
+    //     //         dep_list++;
+    //     //     }
 
-        //     if (!dep_str.empty()) {
-        //         result += " #dep ";
-        //         result += dep_str;
-        //     }
+    //     //     if (!dep_str.empty()) {
+    //     //         result += " #dep ";
+    //     //         result += dep_str;
+    //     //     }
 
-        //     std::string other_str;
-        //     auto other_list = iter->other.begin();
-        //     while (other_list != iter->other.end()) {
+    //     //     std::string other_str;
+    //     //     auto other_list = iter->other.begin();
+    //     //     while (other_list != iter->other.end()) {
 
-        //         if (!other_str.empty()) {
-        //             other_str += ", ";
-        //         }
+    //     //         if (!other_str.empty()) {
+    //     //             other_str += ", ";
+    //     //         }
 
-        //         other_str += *other_list;
-        //         other_list++;
-        //     }
+    //     //         other_str += *other_list;
+    //     //         other_list++;
+    //     //     }
 
-        //     if (!other_str.empty()) {
-        //         result += " #other ";
-        //         result += other_str;
-        //     }
+    //     //     if (!other_str.empty()) {
+    //     //         result += " #other ";
+    //     //         result += other_str;
+    //     //     }
 
-        //     result += "\n";
-        //     iter++;
-        // }
-        return result;
-    }
+    //     //     result += "\n";
+    //     //     iter++;
+    //     // }
+    //     return result;
+    // }
 
     static std::string getName(const LifeTime::ScopeType &scope) {
 
@@ -347,7 +347,7 @@ class LifeTimeScope : SCOPE(protected) std::deque<LifeTime> { // use deque inste
             // auto DB = S.getDiagnostics().Report(
             //     attr.getLoc(),
             //     S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error,
-            //                                        "The attribute '" TO_STR(TRUST_KEYWORD_ATTRIBUTE) "' for '%0' is not applicable."));
+            //                                        "The attribute '" TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE) "' for '%0' is not applicable."));
             // DB.AddString(D->getDeclKindName());
 
 
@@ -410,18 +410,18 @@ enum LogLevel : uint8_t {
 class TrustPlugin : public RecursiveASTVisitor<TrustPlugin> {
   public:
     // The first string arguments in the `trust` attribute for working and managing the plugin
-    static inline const char *LEVEL = TRUST_KEYWORD_LEVEL;
+    static inline const char *LEVEL = STACK_CHECK_KEYWORD_LEVEL;
 
-    static inline const char *UNSAFE = TRUST_KEYWORD_UNSAFE;
-    static inline const char *PRINT_AST = TRUST_KEYWORD_PRINT_AST;
-    static inline const char *PRINT_DUMP = TRUST_KEYWORD_PRINT_DUMP;
+    static inline const char *UNSAFE = STACK_CHECK_KEYWORD_UNSAFE;
+    static inline const char *PRINT_AST = STACK_CHECK_KEYWORD_PRINT_AST;
+    // static inline const char *PRINT_DUMP = STACK_CHECK_KEYWORD_PRINT_DUMP;
 
-    static inline const char *STATUS_ENABLE = TRUST_KEYWORD_ENABLE;
-    static inline const char *STATUS_DISABLE = TRUST_KEYWORD_DISABLE;
-    static inline const char *STATUS_PUSH = TRUST_KEYWORD_PUSH;
-    static inline const char *STATUS_POP = TRUST_KEYWORD_POP;
+    static inline const char *STATUS_ENABLE = STACK_CHECK_KEYWORD_ENABLE;
+    static inline const char *STATUS_DISABLE = STACK_CHECK_KEYWORD_DISABLE;
+    static inline const char *STATUS_PUSH = STACK_CHECK_KEYWORD_PUSH;
+    static inline const char *STATUS_POP = STACK_CHECK_KEYWORD_POP;
 
-    std::set<std::string> m_listFirstArg{LEVEL, UNSAFE, PRINT_AST, PRINT_DUMP};
+    std::set<std::string> m_listFirstArg{LEVEL, UNSAFE, PRINT_AST};
     std::set<std::string> m_listStatus{STATUS_ENABLE, STATUS_DISABLE, STATUS_PUSH, STATUS_POP};
 
     typedef std::map<std::string, std::pair<const CXXRecordDecl *, SourceLocation>> ClassListType;
@@ -464,10 +464,10 @@ class TrustPlugin : public RecursiveASTVisitor<TrustPlugin> {
         out << "\n#trust-config\n";
         // out << "error-type: " << makeHelperString(m_error_type) << "\n";
         // out << "warning-type: " << makeHelperString(m_warning_type) << "\n";
-        // out << TRUST_KEYWORD_AUTO_TYPE ": " << makeHelperString(m_auto_type) << "\n";
-        // out << TRUST_KEYWORD_SHARED_TYPE ": " << makeHelperString(m_shared_type) << "\n";
+        // out << STACK_CHECK_KEYWORD_AUTO_TYPE ": " << makeHelperString(m_auto_type) << "\n";
+        // out << STACK_CHECK_KEYWORD_SHARED_TYPE ": " << makeHelperString(m_shared_type) << "\n";
         // out << "not-shared-classes: " << makeHelperString(m_not_shared_class) << "\n";
-        // out << TRUST_KEYWORD_INVALIDATE_FUNC ": " << makeHelperString(m_invalidate_func) << "\n";
+        // out << STACK_CHECK_KEYWORD_INVALIDATE_FUNC ": " << makeHelperString(m_invalidate_func) << "\n";
         out << "\n";
     }
 
@@ -589,7 +589,7 @@ class TrustPlugin : public RecursiveASTVisitor<TrustPlugin> {
             // if (first.compare(PROFILE) == 0) {
             //     clear();
             // } else
-            if (first.compare(UNSAFE) == 0 || first.compare(PRINT_AST) == 0 || first.compare(PRINT_DUMP) == 0) {
+            if (first.compare(UNSAFE) == 0 || first.compare(PRINT_AST) == 0) {
                 // The second argument may be empty
             } else {
                 result = "Two string literal arguments expected!";
@@ -598,8 +598,8 @@ class TrustPlugin : public RecursiveASTVisitor<TrustPlugin> {
             result = unknownArgumentHelper(first.begin(), m_listFirstArg);
         }
 
-        static const char *LEVEL_ERROR_MESSAGE = "Required behavior not recognized! Allowed values: '" TRUST_KEYWORD_ERROR "', '"
-                                                 "', '" TRUST_KEYWORD_WARNING "' or '" TRUST_KEYWORD_IGNORED "'.";
+        static const char *LEVEL_ERROR_MESSAGE = "Required behavior not recognized! Allowed values: '" STACK_CHECK_KEYWORD_ERROR "', '"
+                                                 "', '" STACK_CHECK_KEYWORD_WARNING "' or '" STACK_CHECK_KEYWORD_IGNORED "'.";
 
         if (result.empty()) {
             // if (first.compare(STATUS) == 0) {
@@ -1020,7 +1020,7 @@ class TrustPlugin : public RecursiveASTVisitor<TrustPlugin> {
     }
 
     std::pair<std::string, std::string> parseAttr(const AnnotateAttr *const attr) {
-        if (!attr || attr->getAnnotation() != TO_STR(TRUST_KEYWORD_ATTRIBUTE) || attr->args_size() != 2) {
+        if (!attr || attr->getAnnotation() != TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE) || attr->args_size() != 2) {
             return pair_empty;
         }
 
@@ -1138,17 +1138,17 @@ class TrustPlugin : public RecursiveASTVisitor<TrustPlugin> {
                     //     logger->AttrComplete(attr->getLocation());
                     // }
 
-                } else if (attr_args.first.compare(PRINT_DUMP) == 0) {
+                // } else if (attr_args.first.compare(PRINT_DUMP) == 0) {
 
-                    if (skipLocation(m_trace_location, decl->getLocation())) {
-                        return;
-                    }
+                //     if (skipLocation(m_trace_location, decl->getLocation())) {
+                //         return;
+                //     }
 
-                    // if (logger) {
-                    //     logger->AttrComplete(attr->getLocation());
-                    // }
+                //     // if (logger) {
+                //     //     logger->AttrComplete(attr->getLocation());
+                //     // }
 
-                    llvm::outs() << m_scopes.Dump(attr->getLocation(), attr_args.second);
+                //     llvm::outs() << m_scopes.Dump(attr->getLocation(), attr_args.second);
                 }
             }
         }
@@ -1494,5 +1494,5 @@ void Verbose(SourceLocation loc, std::string_view str) {
 
 } // namespace
 
-static ParsedAttrInfoRegistry::Add<TrustAttrInfo> A(TO_STR(TRUST_KEYWORD_ATTRIBUTE), "Memory safety plugin control attribute");
-static FrontendPluginRegistry::Add<TrustPluginASTAction> S(TO_STR(TRUST_KEYWORD_ATTRIBUTE), "Memory safety plugin");
+static ParsedAttrInfoRegistry::Add<TrustAttrInfo> A(TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE), "Memory safety plugin control attribute");
+static FrontendPluginRegistry::Add<TrustPluginASTAction> S(TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE), "Memory safety plugin");

@@ -1,7 +1,7 @@
 // RUN: %clangxx -std=c++20 -fsyntax-only \
-// RUN: -Xclang -load -Xclang %shlibdir/trusted-cpp_clang.so \
-// RUN: -Xclang -add-plugin -Xclang trust \
-// RUN: -Xclang -plugin-arg-trust -Xclang verbose  %s 2>&1 \
+// RUN: -Xclang -load -Xclang %shlibdir/stack_check_clang.so \
+// RUN: -Xclang -add-plugin -Xclang stack_check \
+// RUN: -Xclang -plugin-arg-stack_check -Xclang verbose  %s 2>&1 \
 // RUN: | FileCheck %s
 
 // CHECK: Enable verbose mode

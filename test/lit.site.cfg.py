@@ -13,7 +13,7 @@ config.excludes = ['unit_test.cpp', 'speed_test.cpp', 'prime_check.cpp']
 
 # Пути к инструментам
 config.llvm_tools_dir = "/usr/lib/llvm-21/bin"
-config.plugin_path = os.path.join(os.path.dirname(__file__), "..", "trusted-cpp_clang.so")
+config.plugin_path = os.path.join(os.path.dirname(__file__), "..", "stack_check_clang.so")
 
 # Настройка окружения
 config.environment['PATH'] = os.path.pathsep.join((

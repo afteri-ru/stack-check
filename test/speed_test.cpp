@@ -4,7 +4,9 @@
 #include <stdexcept>
 #include <string>
 
-#include "stack_info.h"
+#include "stack_check.h"
+
+using namespace trust;
 
 bool isNumber(const std::string &str, long &num) {
     if (str.empty())

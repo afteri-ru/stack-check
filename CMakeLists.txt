@@ -31,7 +31,7 @@ function(setup_test_target TARGET_NAME TEST_FILE OPTIMIZATION_LEVEL IS_UNIT_TEST
     # Создадим цель для тестов
     add_executable(${TARGET_NAME}
         ${TEST_FILE}
-        stack_info.cpp
+        stack_check.cpp
     )
 
     # Настроим тесты
@@ -73,28 +73,28 @@ endfunction()
 
 
 # Создадим библиотеку плагина clang
-add_library(trusted-cpp_clang SHARED
+add_library(stack_check_clang SHARED
     stack_check_clang.cpp
 )
 
 # Настроим плагин
-target_include_directories(trusted-cpp_clang PRIVATE
+target_include_directories(stack_check_clang PRIVATE
     ${LLVM_INCLUDE_DIRS}
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_compile_definitions(trusted-cpp_clang PRIVATE ${LLVM_DEFINITIONS})
+target_compile_definitions(stack_check_clang PRIVATE ${LLVM_DEFINITIONS})
 
-set_target_properties(trusted-cpp_clang PROPERTIES
+set_target_properties(stack_check_clang PROPERTIES
     PREFIX ""
     SUFFIX ".so"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
 # Используем общую функцию для установки свойств
-set_common_target_properties(trusted-cpp_clang)
+set_common_target_properties(stack_check_clang)
 
-target_link_libraries(trusted-cpp_clang
+target_link_libraries(stack_check_clang
     LLVMCore
     LLVMSupport
     LLVMAnalysis
@@ -133,7 +133,7 @@ add_custom_target(run_tests
     COMMAND echo Run: LLVM Integrated Tester in ${CMAKE_CURRENT_SOURCE_DIR}/test
     COMMAND ${PYTHON_EXECUTABLE} /usr/lib/llvm-21/build/utils/lit/lit.py ${CMAKE_CURRENT_SOURCE_DIR}/test -v
 
-    DEPENDS uint-test-O0 uint-test-O3 speed-test-O0 speed-test-O3 prime-check-O0 prime-check-O3 trusted-cpp_clang
+    DEPENDS uint-test-O0 uint-test-O3 speed-test-O0 speed-test-O3 prime-check-O0 prime-check-O3 stack_check_clang
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test
     COMMENT "Running trust unit tests with both -O0 and -O3 optimization levels and LIT tests"
 )
