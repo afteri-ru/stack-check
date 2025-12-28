@@ -10,7 +10,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Добавим флаги оптимизации
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -fstack-usage")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstack-usage")
 
 # Найдем необходимые компоненты
 find_package(LLVM REQUIRED CONFIG)
@@ -54,8 +54,11 @@ function(setup_test_target TARGET_NAME TEST_FILE OPTIMIZATION_LEVEL IS_UNIT_TEST
     target_compile_definitions(${TARGET_NAME} PRIVATE
         BUILD_UNITTEST
     )
+
     target_link_libraries(${TARGET_NAME} 
         pthread
+        gmp
+        gmpxx
     )
 
     # Добавим определение BUILD_UNITTEST и библиотеки только для unit-тестов
@@ -67,23 +70,6 @@ function(setup_test_target TARGET_NAME TEST_FILE OPTIMIZATION_LEVEL IS_UNIT_TEST
     endif()
 endfunction()
 
-# # Определим функцию для анализа файлов с использованием плагина
-# function(add_trust_analysis_command SOURCE_FILE OUTPUT_FILE DEPENDS_TARGET ARG1 ARG2)
-#     add_custom_command(TARGET ${DEPENDS_TARGET} PRE_BUILD
-#         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -ferror-limit=500 -g -DBUILD_UNITTEST -I${CMAKE_CURRENT_SOURCE_DIR}
-#                 -Xclang -load -Xclang "${CMAKE_SOURCE_DIR}/trusted-cpp_clang.so"
-#                 -Xclang -add-plugin -Xclang trust
-#                 -Xclang -plugin-arg-trust -Xclang log
-#                 -Xclang -plugin-arg-trust -Xclang level=warning
-#                 ${ARG1} ${ARG2}
-#                 -MMD -MP -MF ${OUTPUT_FILE}.d
-#                 -o ${OUTPUT_FILE}.o
-#                 -c ${SOURCE_FILE}
-#         DEPENDS ${DEPENDS_TARGET} ${DEPENDS_TARGET}_trust
-#         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-#         COMMENT "Analyzing ${SOURCE_FILE} with trust plugin"
-#     )
-# endfunction()
 
 
 # Создадим библиотеку плагина clang
@@ -115,21 +101,14 @@ target_link_libraries(trusted-cpp_clang
     LLVMTransformUtils
 )
 
-# Создадим цель для тестов с оптимизацией -O0
 setup_test_target(uint-test-O0 test/unit_test.cpp -O0 TRUE)
-add_dependencies(uint-test-O0 trusted-cpp_clang)
-
-# Создадим цель для тестов с оптимизацией -O3
 setup_test_target(uint-test-O3 test/unit_test.cpp -O3 TRUE)
-add_dependencies(uint-test-O3 trusted-cpp_clang)
 
-# Создадим цель для speed-тестов с оптимизацией -O0
 setup_test_target(speed-test-O0 test/speed_test.cpp -O0 FALSE)
-add_dependencies(speed-test-O0 trusted-cpp_clang)
-
-# Создадим цель для speed-тестов с оптимизацией -O3
 setup_test_target(speed-test-O3 test/speed_test.cpp -O3 FALSE)
-add_dependencies(speed-test-O3 trusted-cpp_clang)
+
+setup_test_target(prime-check-O0 test/prime_check.cpp -O0 FALSE)
+setup_test_target(prime-check-O3 test/prime_check.cpp -O3 FALSE)
 
 # Создадим цель для запуска тестов
 add_custom_target(run_tests
@@ -145,10 +124,16 @@ add_custom_target(run_tests
     COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/speed-test-O3
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/speed-test-O3
 
+    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/prime-check-O0
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/prime-check-O0 100000 1
+
+    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/prime-check-O3
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/prime-check-O3 100000 1
+
     COMMAND echo Run: LLVM Integrated Tester in ${CMAKE_CURRENT_SOURCE_DIR}/test
     COMMAND ${PYTHON_EXECUTABLE} /usr/lib/llvm-21/build/utils/lit/lit.py ${CMAKE_CURRENT_SOURCE_DIR}/test -v
 
-    DEPENDS uint-test-O0 uint-test-O3 speed-test-O0 speed-test-O3 trusted-cpp_clang
+    DEPENDS uint-test-O0 uint-test-O3 speed-test-O0 speed-test-O3 prime-check-O0 prime-check-O3 trusted-cpp_clang
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test
     COMMENT "Running trust unit tests with both -O0 and -O3 optimization levels and LIT tests"
 )
