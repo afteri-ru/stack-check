@@ -29,14 +29,26 @@ endfunction()
 # Определим функцию для настройки целей тестов
 function(setup_test_target TARGET_NAME TEST_FILE OPTIMIZATION_LEVEL IS_UNIT_TEST)
     # Создадим цель для тестов
-    add_executable(${TARGET_NAME}
-        ${TEST_FILE}
-        stack_check.cpp
-    )
+    if(IS_UNIT_TEST)
+        add_executable(${TARGET_NAME}
+            ${TEST_FILE}
+            test/unit2_test.cpp
+            stack_check.cpp
+        )
+        target_link_libraries(${TARGET_NAME} 
+            GTest::GTest 
+            GTest::Main 
+        )
+    else()
+        add_executable(${TARGET_NAME}
+            ${TEST_FILE}
+            stack_check.cpp
+        )
+    endif()
 
     # Настроим тесты
     set_target_properties(${TARGET_NAME} PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test/temp
     )
 
     # Используем общую функцию для установки свойств
@@ -60,14 +72,6 @@ function(setup_test_target TARGET_NAME TEST_FILE OPTIMIZATION_LEVEL IS_UNIT_TEST
         gmp
         gmpxx
     )
-
-    # Добавим определение BUILD_UNITTEST и библиотеки только для unit-тестов
-    if(IS_UNIT_TEST)
-        target_link_libraries(${TARGET_NAME} 
-            GTest::GTest 
-            GTest::Main 
-        )
-    endif()
 endfunction()
 
 
@@ -95,10 +99,10 @@ set_target_properties(stack_check_clang PROPERTIES
 set_common_target_properties(stack_check_clang)
 
 target_link_libraries(stack_check_clang
-    LLVMCore
-    LLVMSupport
-    LLVMAnalysis
-    LLVMTransformUtils
+    # LLVMCore
+    # LLVMSupport
+    # LLVMAnalysis
+    # LLVMTransformUtils
 )
 
 setup_test_target(uint-test-O0 test/unit_test.cpp -O0 TRUE)
@@ -112,28 +116,28 @@ setup_test_target(prime-check-O3 test/prime_check.cpp -O3 FALSE)
 
 # Создадим цель для запуска тестов
 add_custom_target(run_tests
-    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/uint-test-O0
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/uint-test-O0
+    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/temp/uint-test-O0
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/temp/uint-test-O0
 
-    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/uint-test-O3
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/uint-test-O3
+    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/temp/uint-test-O3
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/temp/uint-test-O3
 
-    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/speed-test-O0
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/speed-test-O0
+    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/temp/speed-test-O0
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/temp/speed-test-O0
 
-    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/speed-test-O3
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/speed-test-O3
+    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/temp/speed-test-O3
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/temp/speed-test-O3
 
-    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/prime-check-O0
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/prime-check-O0 100000 1
+    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/temp/prime-check-O0
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/temp/prime-check-O0 100000 1
 
-    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/prime-check-O3
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/prime-check-O3 100000 1
+    COMMAND echo Run: ${CMAKE_CURRENT_SOURCE_DIR}/test/temp/prime-check-O3
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/temp/prime-check-O3 100000 1
 
     COMMAND echo Run: LLVM Integrated Tester in ${CMAKE_CURRENT_SOURCE_DIR}/test
     COMMAND ${PYTHON_EXECUTABLE} /usr/lib/llvm-21/build/utils/lit/lit.py ${CMAKE_CURRENT_SOURCE_DIR}/test -v
 
-    DEPENDS uint-test-O0 uint-test-O3 speed-test-O0 speed-test-O3 prime-check-O0 prime-check-O3 stack_check_clang
+    DEPENDS uint-test-O0 uint-test-O3 speed-test-O0 speed-test-O3 prime-check-O0 prime-check-O3 stack_check_clang 
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test
     COMMENT "Running trust unit tests with both -O0 and -O3 optimization levels and LIT tests"
 )

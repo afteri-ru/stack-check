@@ -10,7 +10,7 @@ using namespace trust;
 
 // Тест для проверки получения размера стека
 TEST(StackInfoTest, GetStackSize) {
-    size_t stack_size = stack_info::get_stack_size();
+    size_t stack_size = stack_check::get_stack_size();
 
     // Проверяем, что размер стека больше нуля
     EXPECT_GT(stack_size, 0);
@@ -22,7 +22,7 @@ TEST(StackInfoTest, GetStackSize) {
 
     void *top;
     void *bottom;
-    EXPECT_TRUE(stack_info::get_stack_info(top, bottom));
+    EXPECT_TRUE(stack_check::get_stack_info(top, bottom));
     EXPECT_TRUE(static_cast<char *>(top) > static_cast<char *>(bottom));
     EXPECT_EQ(static_cast<char *>(top) - static_cast<char *>(bottom), stack_size);
 
@@ -38,8 +38,8 @@ TEST(StackInfoTest, GetStackSize) {
 
 // Тест для проверки получения свободного места на стеке
 TEST(StackInfoTest, GetFreeStackSpace) {
-    size_t stack_size = stack_info::get_stack_size();
-    size_t free_space = stack_info::get_free_stack_space(); // get_staget_free_stack_space();
+    size_t stack_size = stack_check::get_stack_size();
+    size_t free_space = stack_check::get_free_stack_space(); // get_staget_free_stack_space();
 
     // Проверяем, что свободное место не превышает общий размер стека
     EXPECT_LE(free_space, stack_size);
@@ -49,24 +49,25 @@ TEST(StackInfoTest, GetFreeStackSpace) {
 
     char *current_frame = static_cast<char *>(__builtin_frame_address(0));
 
-    EXPECT_TRUE(current_frame < stack_info::addr.top);
-    EXPECT_TRUE(current_frame > stack_info::addr.bottom);
+    EXPECT_TRUE(current_frame < stack_check::info.top);
+    EXPECT_TRUE(current_frame > stack_check::info.bottom);
 
-    EXPECT_EQ(stack_size, static_cast<char *>(stack_info::addr.top) - static_cast<char *>(stack_info::addr.bottom));
-    stack_size = static_cast<char *>(stack_info::addr.top) - static_cast<char *>(stack_info::addr.bottom);
-    free_space = static_cast<char *>(current_frame) - static_cast<char *>(stack_info::addr.bottom);
+    EXPECT_EQ(stack_size, static_cast<char *>(stack_check::info.top) - static_cast<char *>(stack_check::info.bottom));
+    stack_size = static_cast<char *>(stack_check::info.top) - static_cast<char *>(stack_check::info.bottom);
+    free_space = static_cast<char *>(current_frame) - static_cast<char *>(stack_check::info.bottom);
 
     EXPECT_GT(free_space, 0);
     EXPECT_LE(free_space, stack_size);
 
     try {
-        stack_info::check_overflow(stack_size + 1);
+        stack_check::check_overflow(stack_size + 1);
         FAIL();
     } catch (stack_overflow &stack) {
-        EXPECT_EQ(stack.m_size, stack_size + 1);
-        EXPECT_TRUE(static_cast<char *>(stack.m_frame) < static_cast<char *>(stack_info::addr.top));
-        EXPECT_TRUE(static_cast<char *>(stack.m_frame) > static_cast<char *>(stack_info::addr.bottom));
-        EXPECT_TRUE(static_cast<char *>(stack.m_frame) < static_cast<char *>(stack_info::addr.bottom) + stack_size + 1);
+        EXPECT_EQ(stack.size, stack_size + 1);
+        ASSERT_TRUE(stack.info);
+        EXPECT_TRUE(static_cast<char *>(stack.info->frame) < static_cast<char *>(stack_check::info.top));
+        EXPECT_TRUE(static_cast<char *>(stack.info->frame) > static_cast<char *>(stack_check::info.bottom));
+        EXPECT_TRUE(static_cast<char *>(stack.info->frame) < static_cast<char *>(stack_check::info.bottom) + stack_size + 1);
     }
 }
 
@@ -82,8 +83,8 @@ void *test_func_1000(void *info) {
         size += value;
     }
     if (info) {
-        static_cast<StackInfoTest *>(info)->StackSize = stack_info::get_stack_size();       // get_stack_size_thread();
-        static_cast<StackInfoTest *>(info)->FreeSpace = stack_info::get_free_stack_space(); // get_free_stack_space();
+        static_cast<StackInfoTest *>(info)->StackSize = stack_check::get_stack_size();       // get_stack_size_thread();
+        static_cast<StackInfoTest *>(info)->FreeSpace = stack_check::get_free_stack_space(); // get_free_stack_space();
     }
     return (void *)size; // prevent possible optimization
 }
@@ -95,8 +96,8 @@ void *test_func_1000000(void *info) {
         size += value;
     }
     if (info) {
-        static_cast<StackInfoTest *>(info)->StackSize = stack_info::get_stack_size();       // get_stack_size_thread();
-        static_cast<StackInfoTest *>(info)->FreeSpace = stack_info::get_free_stack_space(); // get_free_stack_space();
+        static_cast<StackInfoTest *>(info)->StackSize = stack_check::get_stack_size();       // get_stack_size_thread();
+        static_cast<StackInfoTest *>(info)->FreeSpace = stack_check::get_free_stack_space(); // get_free_stack_space();
     }
     return (void *)size; // prevent possible optimization
 }
@@ -109,12 +110,12 @@ TEST(StackInfoTest, StackUsageInFunction) {
     test_func_1000(&info_1000);
     test_func_1000000(&info_1000000);
 
-    EXPECT_EQ(info_1000.StackSize, stack_info::get_stack_size());
-    EXPECT_EQ(info_1000000.StackSize, stack_info::get_stack_size());
+    EXPECT_EQ(info_1000.StackSize, stack_check::get_stack_size());
+    EXPECT_EQ(info_1000000.StackSize, stack_check::get_stack_size());
 
     // Проверяем, что свободное место уменьшилось (или осталось таким же)
-    EXPECT_TRUE(info_1000.FreeSpace < stack_info::get_stack_size());
-    EXPECT_TRUE(info_1000000.FreeSpace < stack_info::get_stack_size());
+    EXPECT_TRUE(info_1000.FreeSpace < stack_check::get_stack_size());
+    EXPECT_TRUE(info_1000000.FreeSpace < stack_check::get_stack_size());
     EXPECT_TRUE(info_1000000.FreeSpace <= info_1000.FreeSpace) << info_1000000.FreeSpace << "  " << info_1000.FreeSpace;
 }
 
@@ -156,14 +157,14 @@ size_t recursion(StackInfoTest &info, size_t count) {
     }
 
     if (count) {
-        stack_info::check_overflow(8 * 1000);
+        stack_check::check_overflow(8 * 1000);
 
-        info.FreeSpace = static_cast<char *>(__builtin_frame_address(0)) - static_cast<char *>(stack_info::addr.bottom);
+        info.FreeSpace = static_cast<char *>(__builtin_frame_address(0)) - static_cast<char *>(stack_check::info.bottom);
 
         return size + recursion(info, count - 1);
     }
-    info.StackSize = static_cast<char *>(stack_info::addr.top) - static_cast<char *>(stack_info::addr.bottom);
-    info.FreeSpace = static_cast<char *>(__builtin_frame_address(0)) - static_cast<char *>(stack_info::addr.bottom);
+    info.StackSize = static_cast<char *>(stack_check::info.top) - static_cast<char *>(stack_check::info.bottom);
+    info.FreeSpace = static_cast<char *>(__builtin_frame_address(0)) - static_cast<char *>(stack_check::info.bottom);
     return 0;
 }
 
@@ -182,7 +183,7 @@ TEST(StackInfoTest, StackOverflow) {
     EXPECT_TRUE(info_10.FreeSpace <= info_10.StackSize);
 
     try {
-        stack_info::check_overflow(1'000'000'000);
+        stack_check::check_overflow(1'000'000'000);
     } catch (stack_overflow &stack) {
         std::cout << stack.what() << "\n";
     }

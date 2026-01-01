@@ -88,7 +88,7 @@ void TrustRecursion(size_t depth) {
     if (!depth) {
         return;
     }
-    stack_info::check_overflow(4500);
+    stack_check::check_overflow(4500);
     if (call_depth > 10'000'000) {
         std::cout << "Oops. Very good optimization!\n";
         return;

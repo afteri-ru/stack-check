@@ -99,7 +99,7 @@ bool isPrimeSafe(const mpz_class &n, const mpz_class &divisor = 2) {
     }
 
     // Рекурсивный вызов с увеличенным делителем
-    stack_info::check_overflow(10000);
+    stack_check::check_overflow(10000);
     bool result = isPrimeSafe(n, divisor + 1);
 
     // Уменьшаем текущую глубину рекурсии при возврате
@@ -152,32 +152,32 @@ int main(int argc, char *argv[]) {
     std::vector<mpz_class> output;
     output.reserve(count);
 
-    // ---------------------------------------------------------------------
-    // Warming up memory and cache
-    int foundCount = 0;
-    mpz_class number = startNumber;
-    try {
-        while (foundCount < count) {
-            bool isNumberPrime = isPrimeSafe(number);
+    // // ---------------------------------------------------------------------
+    // // Warming up memory and cache
+    // int foundCount = 0;
+    // mpz_class number = startNumber;
+    // try {
+    //     while (foundCount < count) {
+    //         bool isNumberPrime = isPrimeSafe(number);
 
-            // Выводим простые числа
-            if (isNumberPrime) {
-                output.push_back(number);
-                foundCount++;
-            }
+    //         // Выводим простые числа
+    //         if (isNumberPrime) {
+    //             output.push_back(number);
+    //             foundCount++;
+    //         }
 
-            number++;
-        }
+    //         number++;
+    //     }
 
-    } catch (stack_overflow &stack) {
-        std::cout << "Stack overflow exception at: " << maxDepth_safe << " call depth." << std::endl;
-        std::cout << "Stack top: " << stack_info::addr.top << " bottom: " << stack_info::addr.bottom
-                  << " (stack size: " << stack_info::get_stack_size() << ")" << std::endl;
-        std::cout << "Query size: " << stack.m_size << " end frame: " << stack.m_frame
-                  << " (free space: " << (static_cast<char *>(stack.m_frame) - static_cast<char *>(stack_info::addr.bottom)) << ")"
-                  << std::endl;
-        return 1;
-    }
+    // } catch (stack_overflow &stack) {
+    //     std::cout << "Stack overflow exception at: " << maxDepth_safe << " call depth." << std::endl;
+    //     std::cout << "Stack top: " << stack_check::info.top << " bottom: " << stack_check::info.bottom
+    //               << " (stack size: " << stack_check::get_stack_size() << ")" << std::endl;
+    //     std::cout << "Query size: " << stack.m_size << " end frame: " << stack.info->frame
+    //               << " (free space: " << (static_cast<char *>(stack.info->frame) - static_cast<char *>(stack_check::info.bottom)) << ")"
+    //               << std::endl;
+    //     return 1;
+    // }
 
     // ---------------------------------------------------------------------
 
@@ -185,8 +185,8 @@ int main(int argc, char *argv[]) {
     auto start_safe = std::chrono::high_resolution_clock::now();
 
     // Ищем заданное количество простых чисел, начиная с начального
-    foundCount = 0;
-    number = startNumber;
+    int foundCount = 0;
+    mpz_class number = startNumber;
 
     try {
         while (foundCount < count) {
@@ -203,10 +203,10 @@ int main(int argc, char *argv[]) {
 
     } catch (stack_overflow &stack) {
         std::cout << "Stack overflow exception at: " << maxDepth_safe << " call depth." << std::endl;
-        std::cout << "Stack top: " << stack_info::addr.top << " bottom: " << stack_info::addr.bottom
-                  << " (stack size: " << stack_info::get_stack_size() << ")" << std::endl;
-        std::cout << "Query size: " << stack.m_size << " end frame: " << stack.m_frame
-                  << " (free space: " << (static_cast<char *>(stack.m_frame) - static_cast<char *>(stack_info::addr.bottom)) << ")"
+        std::cout << "Stack top: " << stack_check::info.top << " bottom: " << stack_check::info.bottom
+                  << " (stack size: " << stack_check::get_stack_size() << ")" << std::endl;
+        std::cout << "Query size: " << stack.size << " end frame: " << stack.info->frame
+                  << " (free space: " << (static_cast<char *>(stack.info->frame) - static_cast<char *>(stack_check::info.bottom)) << ")"
                   << std::endl;
         return 1;
     }
