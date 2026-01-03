@@ -11,6 +11,30 @@
 [[stack_check]]
 void correct_function() {
     // CHECK: {{.*}}: verbose: Apply attr 'stack_check' to correct_function
+    
+    [[stack_check_limit]]
+    correct_function();
+    // CHECK: {{.*}}: verbose: Apply attr 'stack_check_limit' to correct_function()
+
+    [[stack_check_limit(1)]]
+    correct_function();
+    // CHECK: {{.*}}: verbose: Apply attr 'stack_check_limit(1)' to correct_function()
+
+    [[stack_check_limit("2")]]
+    correct_function();
+    // CHECK: {{.*}}: verbose: Apply attr 'stack_check_limit("2")' to correct_function()
+    
+    [[stack_check_limit(3.3)]]
+    correct_function();
+    // CHECK: {{.*}}: verbose: Apply attr 'stack_check_limit(3.3)' to correct_function()
+    // CHECK-NEXT: {{.*}}: error: The expected argument is an integer or a string literal.
+    // CHECK-NEXT:{{.*}}stack_check_limit(3.3)
+
+    [[stack_check_limit("4","4")]]
+    correct_function();
+    // CHECK: {{.*}}: verbose: Apply attr 'stack_check_limit("4","4")' to correct_function()
+    // CHECK-NEXT:{{.*}}: error: An attribute can have at most one argument.
+    // CHECK-NEXT:{{.*}}stack_check_limit("4","4")
 }
 
 // Правильное использование атрибута - на методе класса

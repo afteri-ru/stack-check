@@ -5,33 +5,56 @@
 #include <cstdint>
 #include <stdexcept>
 
-#if defined __has_attribute
 
-#if __has_attribute(trust)
+/**
+ * @def STACK_CHECK_ATTR(...)
+ * This macro is used to mark a function or class method with a C++ attribute 
+ * and requires a check for free stack space before calling.
+* A value of 0 or no parameter means that the amount of free stack space 
+* for the marked function or class method is calculated automatically.
+*/
+        
+ /**
+ * @def STACK_CHECK_LIMIT(...)
+ * This macro is used  for overriding and checking the minimum stack space limit anywhere in the executed code.
+ * A value of 0 or the omission of the parameter means that only the minimum stack space limit is checked, but it is not changed.
+ */
+        
+ /**
+ * @def STACK_CHECK_IGNORE_NEXT(count)
+ * This macro is used to pass to the stack_check plugin 
+ * (the number of stack overflow checks to skip—either those added automatically 
+ * by the plugin (using the @ref STACK_CHECK_ATTR macro) or those inserted by the @ref STACK_CHECK_LIMIT macro.
+ * A value of 0 disables ignoring checks.
+ */
+        
+#ifdef __has_cpp_attribute
 
-#define STACK_CHECK(...) [[trust("stack_check" __VA_OPT__(,) __VA_ARGS__)]]
-#define STACK_CHECK_LIMIT(value) [[trust("stack_check_limit", value)]] trust::stack_check::check_limit()
-#define STACK_CHECK_IGNORE_NEXT(value) trust::stack_check::ignore_next_check(value)
+#if __has_cpp_attribute(trust)
 
-#elif __has_attribute(stack_check)
+#define STACK_CHECK_ATTR(...) [[trust("stack_check" __VA_OPT__(,) __VA_ARGS__)]]
+#define STACK_CHECK_LIMIT(...) [[trust("stack_check_limit" __VA_OPT__(,) __VA_ARGS__)]] trust::stack_check::check_limit()
+#define STACK_CHECK_IGNORE_NEXT(count) trust::stack_check::ignore_next_check(count)
 
-#define STACK_CHECK(...) [[stack_check(__VA_ARGS__)]]
-#define STACK_CHECK_LIMIT(value) [[stack_check_limit(value)]] trust::stack_check::check_limit()
-#define STACK_CHECK_IGNORE_NEXT(value) trust::stack_check::ignore_next_check(value)
+#elif __has_cpp_attribute(stack_check)
+
+#define STACK_CHECK_ATTR(...) [[stack_check(__VA_ARGS__)]]
+#define STACK_CHECK_LIMIT(...) [[stack_check_limit(__VA_ARGS__)]] trust::stack_check::check_limit()
+#define STACK_CHECK_IGNORE_NEXT(count) trust::stack_check::ignore_next_check(count)
 
 #else // plugins not loaded
-#define STACK_CHECK(...)                                                                                                                   \
+#define STACK_CHECK_ATTR(...)                                                                                                                   \
     static_assert(!"The 'stack_check' attribute is not supported. Run the compiler with the 'stack_check' or 'trusted-cpp' plugins.");
-#define STACK_CHECK_LIMIT(value)                                                                                                           \
+#define STACK_CHECK_LIMIT(...)                                                                                                           \
     static_assert(!"The 'stack_check_limit' attribute is not supported. Run the compiler with the 'stack_check' or 'trusted-cpp' plugins.");
-#define STACK_CHECK_IGNORE_NEXT(value)                                                                                                    \
+#define STACK_CHECK_IGNORE_NEXT(count)                                                                                                    \
     static_assert(!"The 'stack_check' attribute is not supported. Run the compiler with the 'stack_check' or 'trusted-cpp' plugins.");
 #endif
 
-#else // #if defined __has_attribute
-#define STACK_CHECK(...) static_assert(!"The __has_attribute macro is not supported.");
-#define STACK_CHECK_LIMIT static_assert(!"The __has_attribute macro is not supported.");
-#define STACK_CHECK_IGNORE_NEXT static_assert(!"The __has_attribute macro is not supported.");
+#else // #ifdef __has_cpp_attribute
+#define STACK_CHECK_ATTR(...) static_assert(!"The __has_cpp_attribute macro is not supported.");
+#define STACK_CHECK_LIMIT static_assert(!"The __has_cpp_attribute macro is not supported.");
+#define STACK_CHECK_IGNORE_NEXT static_assert(!"The __has_cpp_attribute macro is not supported.");
 #endif
 
 namespace trust {

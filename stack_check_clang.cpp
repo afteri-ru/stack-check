@@ -39,10 +39,6 @@
 
 #pragma clang attribute pop
 
-
-
-
-
 #include <string>
 
 #include "llvm/IR/Constants.h"
@@ -52,12 +48,10 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/Passes/OptimizationLevel.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
-#include "llvm/Passes/OptimizationLevel.h"
 #include "llvm/Support/raw_ostream.h"
-
-
 
 using namespace clang;
 using namespace clang::ast_matchers;
@@ -87,8 +81,31 @@ namespace {
 class TrustPlugin;
 static std::unique_ptr<TrustPlugin> plugin;
 static bool is_verbose = false;
+static size_t StackLimit = 4096;
 
 static void Verbose(SourceLocation loc, std::string_view str);
+
+using MapTy = llvm::StringMap<const clang::FunctionDecl *>;
+llvm::ManagedStatic<MapTy> GMap;
+// std::mutex GMu;
+
+void registerFunction(llvm::StringRef Mangled, const clang::FunctionDecl *FD) {
+    Verbose(FD->getLocation(), std::format("registerFunction '{}'", FD->getQualifiedNameAsString()));
+    // std::lock_guard<std::mutex> L(GMu);
+    (*GMap)[Mangled] = FD;
+}
+
+const clang::FunctionDecl *lookupFunction(llvm::StringRef Mangled) {
+    // std::lock_guard<std::mutex> L(GMu);
+    auto It = GMap->find(Mangled);
+    if (It == GMap->end()) {
+        Verbose(SourceLocation(), std::format("FunctionDecl '{}' not found!", (std::string_view)Mangled));
+        return nullptr;
+    } else {
+        Verbose(SourceLocation(), std::format("FunctionDecl '{}' found!", (std::string_view)Mangled));
+        return It->second;
+    }
+}
 
 static std::string LocToStr(const SourceLocation &loc, const SourceManager &sm) {
     std::string str = loc.printToString(sm);
@@ -109,61 +126,78 @@ static std::string LocToStr(const SourceLocation &loc, const SourceManager &sm) 
 
 struct TrustAttrInfo : public ParsedAttrInfo {
 
-    #define ATTR_STACK_CHECK "stack_check"
-    #define ATTR_STACK_CHECK_LIMIT "stack_check_limit"
+#define ATTR_STACK_CHECK "stack_check"
+#define ATTR_STACK_CHECK_LIMIT "stack_check_limit"
 
     TrustAttrInfo() {
 
         OptArgs = 3;
 
         static constexpr Spelling S[] = {
-            {ParsedAttr::AS_GNU, ATTR_STACK_CHECK},
-            {ParsedAttr::AS_C23, ATTR_STACK_CHECK},
-            {ParsedAttr::AS_CXX11, ATTR_STACK_CHECK},
-            {ParsedAttr::AS_CXX11, "::" ATTR_STACK_CHECK},
+            {ParsedAttr::AS_GNU, ATTR_STACK_CHECK},         {ParsedAttr::AS_C23, ATTR_STACK_CHECK},
+            {ParsedAttr::AS_CXX11, ATTR_STACK_CHECK},       {ParsedAttr::AS_CXX11, "::" ATTR_STACK_CHECK},
 
-            {ParsedAttr::AS_GNU, ATTR_STACK_CHECK_LIMIT},
-            {ParsedAttr::AS_C23, ATTR_STACK_CHECK_LIMIT},
-            {ParsedAttr::AS_CXX11, ATTR_STACK_CHECK_LIMIT},
-            {ParsedAttr::AS_CXX11, "::" ATTR_STACK_CHECK_LIMIT},
+            {ParsedAttr::AS_GNU, ATTR_STACK_CHECK_LIMIT},   {ParsedAttr::AS_C23, ATTR_STACK_CHECK_LIMIT},
+            {ParsedAttr::AS_CXX11, ATTR_STACK_CHECK_LIMIT}, {ParsedAttr::AS_CXX11, "::" ATTR_STACK_CHECK_LIMIT},
         };
         Spellings = S;
     }
 
+    std::string AttrStr(Sema &S, const ParsedAttr &attr) const {
+        std::string result;
+        SourceLocation loc = attr.getLoc();
+        if (loc.isMacroID()) {
+            result += attr.getNormalizedFullName();
+        } else {
+            result += Lexer::getSourceText(CharSourceRange::getTokenRange(attr.getRange()), S.getSourceManager(), S.getLangOpts());
+        }
+        return result;
+    }
+
     AnnotateAttr *CreateAttr(Sema &S, const ParsedAttr &Attr) const {
 
-        if (Attr.getNumArgs()) {
+        if (Attr.getNumArgs() > 1) {
             S.Diag(Attr.getLoc(),
-                   S.getDiagnostics().getCustomDiagID(
-                       DiagnosticsEngine::Error, "The attribute '" TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE) "' does not support arguments."));
-
+                   S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error, "An attribute can have at most one argument."));
             return nullptr;
         }
 
-        return AnnotateAttr::Create(S.Context, TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE), nullptr, 0, Attr.getRange());
+        SmallVector<Expr *, 0> ArgsBuf;
+        if (Attr.getNumArgs() == 0) {
+            // Add empty argument
+            ArgsBuf.push_back(StringLiteral::CreateEmpty(S.Context, 0, 0, 0));
+        } else {
+            if (!(dyn_cast<StringLiteral>(Attr.getArgAsExpr(0)->IgnoreParenCasts()) ||
+                  dyn_cast<IntegerLiteral>(Attr.getArgAsExpr(0)->IgnoreParenCasts()))) {
+                S.Diag(Attr.getLoc(), S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error,
+                                                                         "The expected argument is an integer or a string literal."));
+                return nullptr;
+            }
+            ArgsBuf.push_back(Attr.getArgAsExpr(0));
+        }
+
+        return AnnotateAttr::Create(S.Context, Attr.getAttrName()->getName(), ArgsBuf.data(), ArgsBuf.size(), Attr.getRange());
     }
 
     AttrHandling handleDeclAttribute(Sema &S, Decl *D, const ParsedAttr &attr) const override {
 
-        if (const CXXMethodDecl *method = dyn_cast<CXXMethodDecl>(D)) {
-            Verbose(attr.getLoc(),
-                    std::format("Apply attr '" TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE) "' to {}", method->getQualifiedNameAsString()));
-        } else if (const FunctionDecl *func = dyn_cast<FunctionDecl>(D)) {
-            Verbose(attr.getLoc(),
-                    std::format("Apply attr '" TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE) "' to {}", func->getQualifiedNameAsString()));
-        } else {
+        StringRef name = attr.getAttrName()->getName();
+        bool valid = name.compare(ATTR_STACK_CHECK) == 0;
 
+        if (const CXXMethodDecl *m = dyn_cast<CXXMethodDecl>(D)) {
+            Verbose(attr.getLoc(), std::format("Apply attr '{}' to {}", AttrStr(S, attr), m->getQualifiedNameAsString()));
+        } else if (const FunctionDecl *f = dyn_cast<FunctionDecl>(D)) {
+            Verbose(attr.getLoc(), std::format("Apply attr '{}' to {}", AttrStr(S, attr), f->getQualifiedNameAsString()));
+        } else {
+            valid = false;
+        }
+
+        if (!valid) {
             auto DB = S.getDiagnostics().Report(
                 attr.getLoc(),
-                S.getDiagnostics().getCustomDiagID(
-                    DiagnosticsEngine::Error, "The attribute '" TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE) "' for '%0' is not applicable."));
+                S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error, "The attribute '%0' for '%1' is not applicable."));
+            DB.AddString(AttrStr(S, attr));
             DB.AddString(D->getDeclKindName());
-
-            // S.Diag(attr.getLoc(), S.getDiagnostics().getCustomDiagID(
-            //         DiagnosticsEngine::Error,
-            //         "The attribute [[" TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE) "]] for '%0' is not applicable."));
-            //         // .AddString(D->getDeclKindName();
-
             return AttributeNotApplied;
         }
         D->addAttr(CreateAttr(S, attr));
@@ -172,17 +206,31 @@ struct TrustAttrInfo : public ParsedAttrInfo {
 
     AttrHandling handleStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &attr, class Attr *&Result) const override {
 
-        St->dump();
+        StringRef name = attr.getAttrName()->getName();
+        bool valid = name.compare(ATTR_STACK_CHECK_LIMIT) == 0;
 
-        S.Diag(attr.getLoc(),
-               S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error,
-                                                  "The attribute '" TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE) "' is not applicable."));
+        if (const CallExpr *call = dyn_cast<CallExpr>(St)) {
+                StringRef text = Lexer::getSourceText(CharSourceRange::getTokenRange(St->getBeginLoc(), St->getEndLoc()),
+                                                      S.getSourceManager(), S.getLangOpts());
 
-        return AttributeNotApplied;
+                Verbose(attr.getLoc(), std::format("Apply attr '{}' to {}", AttrStr(S, attr), (std::string_view)text));
+        } else {
+            valid = false;
+        }
+
+        if (!valid) {
+            auto DB = S.getDiagnostics().Report(
+                attr.getLoc(), S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error, "The attribute '%0' is not applicable."));
+            DB.AddString(AttrStr(S, attr));
+            if (is_verbose) {
+                St->dump();
+            }
+            return AttributeNotApplied;
+        }
+        Result = CreateAttr(S, attr);
+        return AttributeApplied;
     }
 };
-
-
 
 // struct FunctionTracePass : public llvm::PassInfoMixin<FunctionTracePass> {
 //     llvm::PreservedAnalyses run(llvm::Module &M, llvm::ModuleAnalysisManager &) {
@@ -255,147 +303,130 @@ struct TrustAttrInfo : public ParsedAttrInfo {
 //   static bool isRequired() { return true; }
 // };
 
-
-
 class DebugInjectorPass : public llvm::PassInfoMixin<DebugInjectorPass> {
-public:
-  llvm::PreservedAnalyses run(llvm::Module &Module,
-                              llvm::ModuleAnalysisManager &);
+  public:
+    llvm::PreservedAnalyses run(llvm::Module &Module, llvm::ModuleAnalysisManager &);
 
-static bool isRequired() { return true; }                              
-private:
-  llvm::Function *ensurePrintf(llvm::Module &Module);
-  llvm::Function *ensureLogger(llvm::Module &Module);
-  bool instrumentCall(llvm::CallBase &Call, llvm::Function *Logger);
+    static bool isRequired() { return true; }
+
+  private:
+    llvm::Function *ensurePrintf(llvm::Module &Module);
+    llvm::Function *ensureLogger(llvm::Module &Module);
+    bool instrumentCall(llvm::CallBase &Call, llvm::Function *Logger);
 };
 
 llvm::Function *DebugInjectorPass::ensurePrintf(llvm::Module &Module) {
-  llvm::Function *Printf = Module.getFunction("printf");
-  if (Printf != nullptr) {
-    return Printf;
-  }
+    llvm::Function *Printf = Module.getFunction("printf");
+    if (Printf != nullptr) {
+        return Printf;
+    }
 
-  llvm::LLVMContext &Context = Module.getContext();
-  llvm::FunctionType *PrintfType =
-      llvm::FunctionType::get(llvm::Type::getInt32Ty(Context),
-                              llvm::PointerType::get(Context, 0),
-                              true);
-  llvm::FunctionCallee Callee =
-      Module.getOrInsertFunction("printf", PrintfType);
-  return llvm::cast<llvm::Function>(Callee.getCallee());
+    llvm::LLVMContext &Context = Module.getContext();
+    llvm::FunctionType *PrintfType = llvm::FunctionType::get(llvm::Type::getInt32Ty(Context), llvm::PointerType::get(Context, 0), true);
+    llvm::FunctionCallee Callee = Module.getOrInsertFunction("printf", PrintfType);
+    return llvm::cast<llvm::Function>(Callee.getCallee());
 }
 
 llvm::Function *DebugInjectorPass::ensureLogger(llvm::Module &Module) {
-  llvm::Function *Logger = Module.getFunction("debug_log");
-  if (Logger != nullptr && !Logger->empty()) {
+    llvm::Function *Logger = Module.getFunction("debug_log");
+    if (Logger != nullptr && !Logger->empty()) {
+        return Logger;
+    }
+
+    llvm::LLVMContext &Context = Module.getContext();
+    llvm::Type *VoidType = llvm::Type::getVoidTy(Context);
+    llvm::Type *CharPtrType = llvm::PointerType::get(Context, 0);
+    llvm::FunctionType *LoggerType = llvm::FunctionType::get(VoidType, {CharPtrType}, false);
+
+    if (Logger == nullptr) {
+        Logger = llvm::Function::Create(LoggerType, llvm::GlobalValue::InternalLinkage, "debug_log", Module);
+    }
+
+    if (Logger->empty()) {
+        llvm::BasicBlock *Entry = llvm::BasicBlock::Create(Context, "entry", Logger);
+        llvm::IRBuilder<> Builder(Entry);
+        llvm::Function *Printf = ensurePrintf(Module);
+        llvm::Value *FormatValue = Builder.CreateGlobalString("Debug call before: %s\n", "debug_log.format");
+        Builder.CreateCall(Printf, {FormatValue, Logger->getArg(0)});
+        Builder.CreateRetVoid();
+    }
+
     return Logger;
-  }
-
-  llvm::LLVMContext &Context = Module.getContext();
-  llvm::Type *VoidType = llvm::Type::getVoidTy(Context);
-  llvm::Type *CharPtrType = llvm::PointerType::get(Context, 0);
-  llvm::FunctionType *LoggerType =
-      llvm::FunctionType::get(VoidType, {CharPtrType}, false);
-
-  if (Logger == nullptr) {
-    Logger = llvm::Function::Create(LoggerType, llvm::GlobalValue::InternalLinkage,
-                                    "debug_log", Module);
-  }
-
-  if (Logger->empty()) {
-    llvm::BasicBlock *Entry = llvm::BasicBlock::Create(Context, "entry", Logger);
-    llvm::IRBuilder<> Builder(Entry);
-    llvm::Function *Printf = ensurePrintf(Module);
-    llvm::Value *FormatValue = Builder.CreateGlobalString(
-        "Debug call before: %s\n", "debug_log.format");
-    Builder.CreateCall(Printf, {FormatValue, Logger->getArg(0)});
-    Builder.CreateRetVoid();
-  }
-
-  return Logger;
 }
 
-bool DebugInjectorPass::instrumentCall(llvm::CallBase &Call,
-                                       llvm::Function *Logger) {
-  llvm::Function *Callee = Call.getCalledFunction();
-  if (Callee != nullptr) {
-    if (Callee == Logger) {
-      return false;
+bool DebugInjectorPass::instrumentCall(llvm::CallBase &Call, llvm::Function *Logger) {
+    llvm::Function *Callee = Call.getCalledFunction();
+    if (Callee != nullptr) {
+        if (Callee == Logger) {
+            return false;
+        }
+        if (Callee->getName().starts_with("llvm.")) {
+            return false;
+        }
+
+        // llvm::outs() << Callee->getContext()->get;
+        llvm::outs() << "\n";
+        // for (const auto *Attr : Callee->getAttributes()) {
+        //   if (const auto *Ann = dyn_cast<AnnotateAttr>(Attr)) {
+
+        //     // if (Ann->getAnnotation() == kAnnotateName)
+        //     //   return true;
+        //   }
+        // }
     }
-    if (Callee->getName().starts_with("llvm.")) {
-      return false;
+
+    llvm::IRBuilder<> Builder(Call.getContext());
+    Builder.SetInsertPoint(&Call);
+
+    std::string CalleeName;
+    if (Callee != nullptr) {
+        CalleeName = Callee->getName().str();
+    } else {
+        CalleeName = "indirect-call";
+    }
+    if (CalleeName.empty()) {
+        CalleeName = "unnamed-call";
     }
 
-    // llvm::outs() << Callee->getContext()->get;
-    llvm::outs() << "\n";
-    // for (const auto *Attr : Callee->getAttributes()) {
-    //   if (const auto *Ann = dyn_cast<AnnotateAttr>(Attr)) {
-        
-    //     // if (Ann->getAnnotation() == kAnnotateName)
-    //     //   return true;
-    //   }
-    // }
-    
-    
-  }
-
-  llvm::IRBuilder<> Builder(Call.getContext());
-  Builder.SetInsertPoint(&Call);
-
-  std::string CalleeName;
-  if (Callee != nullptr) {
-    CalleeName = Callee->getName().str();
-  } else {
-    CalleeName = "indirect-call";
-  }
-  if (CalleeName.empty()) {
-    CalleeName = "unnamed-call";
-  }
-
-  llvm::Value *NamePointer =
-      Builder.CreateGlobalString(CalleeName, "debug.call.name");
-  Builder.CreateCall(Logger, {NamePointer});
-  return true;
+    llvm::Value *NamePointer = Builder.CreateGlobalString(CalleeName, "debug.call.name");
+    Builder.CreateCall(Logger, {NamePointer});
+    return true;
 }
 
-llvm::PreservedAnalyses
-DebugInjectorPass::run(llvm::Module &Module,
-                       llvm::ModuleAnalysisManager &) {
-  llvm::Function *Logger = ensureLogger(Module);
-  if (Logger == nullptr) {
+llvm::PreservedAnalyses DebugInjectorPass::run(llvm::Module &Module, llvm::ModuleAnalysisManager &) {
+    llvm::Function *Logger = ensureLogger(Module);
+    if (Logger == nullptr) {
+        return llvm::PreservedAnalyses::all();
+    }
+
+    bool Changed = false;
+    for (llvm::Function &Function : Module) {
+        if (Function.isDeclaration()) {
+            continue;
+        }
+        if (&Function == Logger) {
+            continue;
+        }
+        for (llvm::BasicBlock &Block : Function) {
+            for (llvm::Instruction &Instruction : Block) {
+                auto *Call = llvm::dyn_cast<llvm::CallBase>(&Instruction);
+                if (Call == nullptr) {
+                    continue;
+                }
+                llvm::Function *CurrentCallee = Call->getCalledFunction();
+                if (CurrentCallee == Logger) {
+                    continue;
+                }
+                Changed |= instrumentCall(*Call, Logger);
+            }
+        }
+    }
+
+    if (Changed) {
+        return llvm::PreservedAnalyses::none();
+    }
     return llvm::PreservedAnalyses::all();
-  }
-
-  bool Changed = false;
-  for (llvm::Function &Function : Module) {
-    if (Function.isDeclaration()) {
-      continue;
-    }
-    if (&Function == Logger) {
-      continue;
-    }
-    for (llvm::BasicBlock &Block : Function) {
-      for (llvm::Instruction &Instruction : Block) {
-        auto *Call = llvm::dyn_cast<llvm::CallBase>(&Instruction);
-        if (Call == nullptr) {
-          continue;
-        }
-        llvm::Function *CurrentCallee = Call->getCalledFunction();
-        if (CurrentCallee == Logger) {
-          continue;
-        }
-        Changed |= instrumentCall(*Call, Logger);
-      }
-    }
-  }
-
-  if (Changed) {
-    return llvm::PreservedAnalyses::none();
-  }
-  return llvm::PreservedAnalyses::all();
 }
-
-
 
 // /*
 //  *
@@ -1668,7 +1699,7 @@ class TrustPluginASTAction : public PluginASTAction {
 
     std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &Compiler, StringRef InFile) override {
 
-        llvm::outs() <<"CreateASTConsumer\n";
+        llvm::outs() << "CreateASTConsumer\n";
         std::unique_ptr<TrustPluginASTConsumer> obj = std::unique_ptr<TrustPluginASTConsumer>(new TrustPluginASTConsumer());
 
         // Compiler.getCodeGenOpts().PassPlugins.push_back("stack_check_clang.so");
@@ -1676,19 +1707,27 @@ class TrustPluginASTAction : public PluginASTAction {
         return obj;
     }
 
+    // Этот метод регистрирует наш кастомный обработчик атрибутов.
+    bool BeginSourceFileAction(CompilerInstance &CI) override {
+        llvm::outs() << "BeginSourceFileAction\n";
+
+        // Sema &sema = CI.getSema();
+        // sema.addParsedAttrInfo(new MyDebugAttrInfo());
+        return true;
+    }
+
     bool BeginInvocation(CompilerInstance &CI) override {
         // // 1) Добавляем pass-plugin (то же, что даёт -fpass-plugin=...)
         // CI.getCodeGenOpts().PassPlugins.push_back("/abs/path/libMyPassPlugin.so");
 
-        llvm::outs() <<"BeginInvocation\n";
+        llvm::outs() << "BeginInvocation\n";
         // llvm::outs() <<CI <<"\n"; /// .getPassPlugins().size()
         // CI.LoadRequestedPlugins ();
-        //CI.getFrontendOpts().LLVMArgs.push_back("-passes=stack_check");
+        // CI.getFrontendOpts().LLVMArgs.push_back("-passes=stack_check");
         // 2) Ничего больше не нужно, если pass-plugin сам добавляется в пайплайн
         // через registerPipelineStartEPCallback / registerOptimizerLastEPCallback и т.п.
         return true;
     }
-
 
     template <class... Args> void PrintColor(raw_ostream &out, std::format_string<Args...> fmt, Args &&...args) {
 
@@ -1751,23 +1790,15 @@ void Verbose(SourceLocation loc, std::string_view str) {
 static ParsedAttrInfoRegistry::Add<TrustAttrInfo> A(TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE), "Memory safety plugin control attribute");
 static FrontendPluginRegistry::Add<TrustPluginASTAction> S(TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE), "Memory safety plugin");
 
-
-
-
-extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
-llvmGetPassPluginInfo() {
-    llvm::errs() <<"registerPipelineStartEPCallback\n";
-  static ::llvm::PassPluginLibraryInfo PluginInfo = {
-      LLVM_PLUGIN_API_VERSION,
-      "stack_check",
-      "0.1",
-      [](::llvm::PassBuilder &PB) {
-        llvm::errs() <<"PassBuilder\n";
-        PB.registerPipelineStartEPCallback(
-            [](::llvm::ModulePassManager &MPM, ::llvm::OptimizationLevel) {
-                llvm::errs() <<"ModulePassManager\n";
-              MPM.addPass(DebugInjectorPass());
-            });
-      }};
-  return PluginInfo;
+extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo llvmGetPassPluginInfo() {
+    llvm::errs() << "registerPipelineStartEPCallback\n";
+    static ::llvm::PassPluginLibraryInfo PluginInfo = {LLVM_PLUGIN_API_VERSION, "stack_check", "0.1", [](::llvm::PassBuilder &PB) {
+                                                           llvm::errs() << "PassBuilder\n";
+                                                           PB.registerPipelineStartEPCallback(
+                                                               [](::llvm::ModulePassManager &MPM, ::llvm::OptimizationLevel) {
+                                                                   llvm::errs() << "ModulePassManager\n";
+                                                                   MPM.addPass(DebugInjectorPass());
+                                                               });
+                                                       }};
+    return PluginInfo;
 }
