@@ -13,15 +13,15 @@
 // ON: Enable verbose mode
 
 // Правильное использование атрибута - на функции
-STACK_CHECK_ATTR()
+STACK_CHECK_ATTR(0)
 void correct_function() {
-    // OFF: {{.*}}: error:
-    // ON: {{.*}}: verbose: Apply attr 'stack_check' to correct_function
+    // OFF: error:
+    // ON: verbose: Apply attr 'stack_check' to correct_function
 }
 
 
 void other_function() {
-    // ON-NOT: {{.*}}verbose
+    // ON-NOT: verbose
 }
 
 // Правильное использование атрибута - на методе класса
@@ -29,23 +29,7 @@ class CorrectClass {
   public:
     STACK_CHECK_ATTR(100)
     void correct_method() {
-        // OFF: {{.*}}error
-        // ON: {{.*}}: verbose: Apply attr 'stack_check' to CorrectClass::correct_method
+        // OFF: error
+        // ON: verbose: Apply attr 'stack_check' to CorrectClass::correct_method
     }
 };
-
-int main(){
-
-    STACK_CHECK_IGNORE_NEXT(0);
-    // OFF: {{.*}}: error:
-    // ON-NOT: {{.*}}error
-    correct_function();
-    
-    STACK_CHECK_LIMIT(0);
-    // OFF: {{.*}}: error:
-    // ON: {{.*}}: verbose: Apply attr 'stack_check_limit'
-    
-    other_function();
-
-    return 0;
-}

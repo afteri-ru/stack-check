@@ -85,28 +85,6 @@ static size_t StackLimit = 4096;
 
 static void Verbose(SourceLocation loc, std::string_view str);
 
-using MapTy = llvm::StringMap<const clang::FunctionDecl *>;
-llvm::ManagedStatic<MapTy> GMap;
-// std::mutex GMu;
-
-void registerFunction(llvm::StringRef Mangled, const clang::FunctionDecl *FD) {
-    Verbose(FD->getLocation(), std::format("registerFunction '{}'", FD->getQualifiedNameAsString()));
-    // std::lock_guard<std::mutex> L(GMu);
-    (*GMap)[Mangled] = FD;
-}
-
-const clang::FunctionDecl *lookupFunction(llvm::StringRef Mangled) {
-    // std::lock_guard<std::mutex> L(GMu);
-    auto It = GMap->find(Mangled);
-    if (It == GMap->end()) {
-        Verbose(SourceLocation(), std::format("FunctionDecl '{}' not found!", (std::string_view)Mangled));
-        return nullptr;
-    } else {
-        Verbose(SourceLocation(), std::format("FunctionDecl '{}' found!", (std::string_view)Mangled));
-        return It->second;
-    }
-}
-
 static std::string LocToStr(const SourceLocation &loc, const SourceManager &sm) {
     std::string str = loc.printToString(sm);
     size_t pos = str.find(' ');
@@ -124,185 +102,150 @@ static std::string LocToStr(const SourceLocation &loc, const SourceManager &sm) 
  * (only the number of arguments and their type are checked).
  */
 
-struct TrustAttrInfo : public ParsedAttrInfo {
+ #define ATTR_STACK_CHECK "stack_check"
 
-#define ATTR_STACK_CHECK "stack_check"
-#define ATTR_STACK_CHECK_LIMIT "stack_check_limit"
+//  struct TrustAttrInfo : public ParsedAttrInfo {
 
-    TrustAttrInfo() {
 
-        OptArgs = 3;
+//     TrustAttrInfo() {
 
-        static constexpr Spelling S[] = {
-            {ParsedAttr::AS_GNU, ATTR_STACK_CHECK},         {ParsedAttr::AS_C23, ATTR_STACK_CHECK},
-            {ParsedAttr::AS_CXX11, ATTR_STACK_CHECK},       {ParsedAttr::AS_CXX11, "::" ATTR_STACK_CHECK},
+//         OptArgs = 0;
+//         NumArgs = 1;
+//         NumArgMembers = 1;
 
-            {ParsedAttr::AS_GNU, ATTR_STACK_CHECK_LIMIT},   {ParsedAttr::AS_C23, ATTR_STACK_CHECK_LIMIT},
-            {ParsedAttr::AS_CXX11, ATTR_STACK_CHECK_LIMIT}, {ParsedAttr::AS_CXX11, "::" ATTR_STACK_CHECK_LIMIT},
-        };
-        Spellings = S;
-    }
+//         // IsType = false;
+//         // IsStmt = false;
+//         // IsKnownToGCC = false;
+//         // IsSupportedByPragmaAttribute = false;
 
-    std::string AttrStr(Sema &S, const ParsedAttr &attr) const {
-        std::string result;
-        SourceLocation loc = attr.getLoc();
-        if (loc.isMacroID()) {
-            result += attr.getNormalizedFullName();
-        } else {
-            result += Lexer::getSourceText(CharSourceRange::getTokenRange(attr.getRange()), S.getSourceManager(), S.getLangOpts());
-        }
-        return result;
-    }
-
-    AnnotateAttr *CreateAttr(Sema &S, const ParsedAttr &Attr) const {
-
-        if (Attr.getNumArgs() > 1) {
-            S.Diag(Attr.getLoc(),
-                   S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error, "An attribute can have at most one argument."));
-            return nullptr;
-        }
-
-        SmallVector<Expr *, 0> ArgsBuf;
-        if (Attr.getNumArgs() == 0) {
-            // Add empty argument
-            ArgsBuf.push_back(StringLiteral::CreateEmpty(S.Context, 0, 0, 0));
-        } else {
-            if (!(dyn_cast<StringLiteral>(Attr.getArgAsExpr(0)->IgnoreParenCasts()) ||
-                  dyn_cast<IntegerLiteral>(Attr.getArgAsExpr(0)->IgnoreParenCasts()))) {
-                S.Diag(Attr.getLoc(), S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error,
-                                                                         "The expected argument is an integer or a string literal."));
-                return nullptr;
-            }
-            ArgsBuf.push_back(Attr.getArgAsExpr(0));
-        }
-
-        return AnnotateAttr::Create(S.Context, Attr.getAttrName()->getName(), ArgsBuf.data(), ArgsBuf.size(), Attr.getRange());
-    }
-
-    AttrHandling handleDeclAttribute(Sema &S, Decl *D, const ParsedAttr &attr) const override {
-
-        StringRef name = attr.getAttrName()->getName();
-        bool valid = name.compare(ATTR_STACK_CHECK) == 0;
-
-        if (const CXXMethodDecl *m = dyn_cast<CXXMethodDecl>(D)) {
-            Verbose(attr.getLoc(), std::format("Apply attr '{}' to {}", AttrStr(S, attr), m->getQualifiedNameAsString()));
-        } else if (const FunctionDecl *f = dyn_cast<FunctionDecl>(D)) {
-            Verbose(attr.getLoc(), std::format("Apply attr '{}' to {}", AttrStr(S, attr), f->getQualifiedNameAsString()));
-        } else {
-            valid = false;
-        }
-
-        if (!valid) {
-            auto DB = S.getDiagnostics().Report(
-                attr.getLoc(),
-                S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error, "The attribute '%0' for '%1' is not applicable."));
-            DB.AddString(AttrStr(S, attr));
-            DB.AddString(D->getDeclKindName());
-            return AttributeNotApplied;
-        }
-        D->addAttr(CreateAttr(S, attr));
-        return AttributeApplied;
-    }
-
-    AttrHandling handleStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &attr, class Attr *&Result) const override {
-
-        StringRef name = attr.getAttrName()->getName();
-        bool valid = name.compare(ATTR_STACK_CHECK_LIMIT) == 0;
-
-        if (const CallExpr *call = dyn_cast<CallExpr>(St)) {
-                StringRef text = Lexer::getSourceText(CharSourceRange::getTokenRange(St->getBeginLoc(), St->getEndLoc()),
-                                                      S.getSourceManager(), S.getLangOpts());
-
-                Verbose(attr.getLoc(), std::format("Apply attr '{}' to {}", AttrStr(S, attr), (std::string_view)text));
-        } else {
-            valid = false;
-        }
-
-        if (!valid) {
-            auto DB = S.getDiagnostics().Report(
-                attr.getLoc(), S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error, "The attribute '%0' is not applicable."));
-            DB.AddString(AttrStr(S, attr));
-            if (is_verbose) {
-                St->dump();
-            }
-            return AttributeNotApplied;
-        }
-        Result = CreateAttr(S, attr);
-        return AttributeApplied;
-    }
-};
-
-// struct FunctionTracePass : public llvm::PassInfoMixin<FunctionTracePass> {
-//     llvm::PreservedAnalyses run(llvm::Module &M, llvm::ModuleAnalysisManager &) {
-//         bool modified = false;
-
-//         // Объявляем отладочную функцию
-//         llvm::LLVMContext &context = M.getContext();
-//         llvm::Type *voidType = llvm::Type::getVoidTy(context);
-//         llvm::Type *ptrType = llvm::PointerType::get(context, 0);
-//         std::vector<llvm::Type *> paramTypes = {ptrType, ptrType};
-//         llvm::FunctionType *debugFuncType = llvm::FunctionType::get(voidType, paramTypes, false);
-
-//         llvm::FunctionCallee debugFunc = M.getOrInsertFunction("__cyg_profile_func_enter", debugFuncType);
-//         llvm::Function *debugFunction = llvm::cast<llvm::Function>(debugFunc.getCallee());
-
-//         // Делаем функцию external
-//         debugFunction->setLinkage(llvm::GlobalValue::ExternalLinkage);
-
-//         // Проходим по всем функциям в модуле
-//         for (auto &function : M) {
-//             // Пропускаем объявления и нашу отладочную функцию
-//             if (function.isDeclaration() || &function == debugFunction)
-//                 continue;
-
-//             // Проходим по всем базовым блокам
-//             for (auto &block : function) {
-//                 // Создаем временный вектор инструкций для обработки
-//                 std::vector<llvm::Instruction *> callInstructions;
-
-//                 // Собираем все вызовы функций
-//                 for (auto &inst : block) {
-//                     if (auto *cb = llvm::dyn_cast<llvm::CallBase>(&inst)) {
-//                         callInstructions.push_back(cb);
-//                     }
-//                 }
-
-//                 // Вставляем отладочные вызовы перед каждым вызовом функции
-//                 for (auto inst : callInstructions) {
-//                     auto *cb = llvm::cast<llvm::CallBase>(inst);
-//                     llvm::Value *calledOperand = cb->getCalledOperand();
-//                     llvm::Value *calledStripped = calledOperand->stripPointerCasts();
-
-//                     if (auto *calleeFunc = llvm::dyn_cast<llvm::Function>(calledStripped)) {
-//                         // Пропускаем внутренние и отладочную
-//                         if (calleeFunc->isIntrinsic() || calleeFunc == debugFunction)
-//                             continue;
-//                     }
-
-//                     // Создаем параметры для отладочной функции
-//                     std::vector<llvm::Value *> args;
-//                     llvm::IRBuilder<> builder(inst);
-
-//                     // Функция
-//                     llvm::Value *funcPtr = builder.CreateBitCast(calledOperand, ptrType);
-//                     // Вместо адреса инструкции (для void вызовов это не pointer type) используем адрес текущей функции
-//                     llvm::Value *callSitePtr = builder.CreateBitCast(&function, ptrType);
-
-//                     args.push_back(funcPtr);
-//                     args.push_back(callSitePtr);
-
-//                     builder.CreateCall(debugFunc, args);
-//                     modified = true;
-//                 }
-//             }
-//         }
-
-//         return modified ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
+//         static constexpr Spelling S[] = {
+//             {ParsedAttr::AS_GNU, ATTR_STACK_CHECK},         {ParsedAttr::AS_C23, ATTR_STACK_CHECK},
+//             {ParsedAttr::AS_CXX11, ATTR_STACK_CHECK},       {ParsedAttr::AS_CXX11, "::" ATTR_STACK_CHECK},
+//         };
+//         Spellings = S;
 //     }
 
-//   static bool isRequired() { return true; }
+//     std::string AttrStr(Sema &S, const ParsedAttr &attr) const {
+//         std::string result;
+//         SourceLocation loc = attr.getLoc();
+//         if (loc.isMacroID()) {
+//             result += attr.getNormalizedFullName();
+//         } else {
+//             result += Lexer::getSourceText(CharSourceRange::getTokenRange(attr.getRange()), S.getSourceManager(), S.getLangOpts());
+//         }
+//         return result;
+//     }
+
+//     AnnotateAttr *CreateAttr(Sema &S, const ParsedAttr &Attr) const {
+
+//         if (Attr.getNumArgs() != 1 || !isa<IntegerLiteral>(Attr.getArgAsExpr(0)->IgnoreParenCasts())) {
+//             // S.Diag(Attr.getLoc(),S.getDiagnostics().getCustomDiagID(
+//             //     DiagnosticsEngine::Error, "The attribute argument must be a single integer."));
+//             return nullptr;
+//         }
+
+//         SmallVector<Expr *, 1> ArgsBuf;
+//         ArgsBuf.push_back(Attr.getArgAsExpr(0));
+
+//         return AnnotateAttr::Create(S.Context, Attr.getAttrName()->getName(), ArgsBuf.data(), ArgsBuf.size(), Attr.getRange());
+//     }
+
+//     AttrHandling handleDeclAttribute(Sema &S, Decl *D, const ParsedAttr &attr) const override {
+
+//         if (const CXXMethodDecl *m = dyn_cast<CXXMethodDecl>(D)) {
+//             Verbose(attr.getLoc(), std::format("Apply attr '{}' to {}", AttrStr(S, attr), m->getQualifiedNameAsString()));
+//         } else if (const FunctionDecl *f = dyn_cast<FunctionDecl>(D)) {
+//             Verbose(attr.getLoc(), std::format("Apply attr '{}' to {}", AttrStr(S, attr), f->getQualifiedNameAsString()));
+//         } else {
+//             // auto DB = S.getDiagnostics().Report(
+//             //     attr.getLoc(),
+//             //     S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error, "The attribute '%0' for '%1' is not applicable."));
+//             // DB.AddString(AttrStr(S, attr));
+//             // DB.AddString(D->getDeclKindName());
+//             return AttributeNotApplied;
+//         }
+//         D->addAttr(CreateAttr(S, attr));
+//         return AttributeApplied;
+//     }
 // };
 
+
+    struct TrustAttrInfo : public ParsedAttrInfo {
+
+        TrustAttrInfo() {
+
+            OptArgs = 0;
+            NumArgs = 1;
+            NumArgMembers = 1;
+
+            IsType = false;
+            IsStmt = false;
+            IsKnownToGCC = false;
+            IsSupportedByPragmaAttribute = false;
+
+            static constexpr Spelling S[] = {
+                {ParsedAttr::AS_GNU, ATTR_STACK_CHECK},
+                {ParsedAttr::AS_C23, ATTR_STACK_CHECK},
+                {ParsedAttr::AS_CXX11, ATTR_STACK_CHECK},
+                {ParsedAttr::AS_CXX11, "::" ATTR_STACK_CHECK},
+                {ParsedAttr::AS_CXX11, "::trust::" ATTR_STACK_CHECK},
+            };
+            Spellings = S;
+        }
+
+        std::string AttrStr(Sema &S, const ParsedAttr &attr) const {
+            std::string result;
+            SourceLocation loc = attr.getLoc();
+            if (loc.isMacroID()) {
+                result += attr.getNormalizedFullName();
+            } else {
+                result += Lexer::getSourceText(CharSourceRange::getTokenRange(attr.getRange()), S.getSourceManager(), S.getLangOpts());
+            }
+            return result;
+        }
+
+
+        AnnotateAttr * CreateAttr(Sema &S, const ParsedAttr &Attr) const {
+
+            if (Attr.getNumArgs() != 1 || !isa<IntegerLiteral>(Attr.getArgAsExpr(0)->IgnoreParenCasts())) {
+                S.Diag(Attr.getLoc(),S.getDiagnostics().getCustomDiagID(
+                    DiagnosticsEngine::Error, "The attribute argument must be a single integer."));
+                return nullptr;
+            }
+            return AnnotateAttr::Create(S.Context, ATTR_STACK_CHECK, Attr);//ArgsBuf.data(), ArgsBuf.size(), Attr.getRange());
+        }
+
+        AttrHandling handleDeclAttribute(Sema &S, Decl *D, const ParsedAttr &Attr) const override {
+
+            if (auto attr = CreateAttr(S, Attr)) {
+                D->addAttr(attr);
+                if (isa<CXXMethodDecl>(D) || isa<FunctionDecl>(D)) {
+                    Verbose(Attr.getLoc(), std::format("Apply attr '{}' to {}", 
+                        AttrStr(S, Attr), dyn_cast<FunctionDecl>(D)->getQualifiedNameAsString()));
+                    return AttributeApplied;
+                } else {
+                    auto DB = S.getDiagnostics().Report(
+                        Attr.getLoc(),
+                        S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error, "The attribute '%0' for '%1' is not applicable."));
+                    DB.AddString(AttrStr(S, Attr));
+                    DB.AddString(D->getDeclKindName());
+                }
+            }
+            return AttributeNotApplied;
+        }
+
+        // AttrHandling handleStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &Attr, class Attr *&Result) const override {
+        //     if ((Result = CreateAttr(S, Attr))) {
+        //         return AttributeApplied;
+        //     }
+        //     return AttributeNotApplied;
+        // }
+    };
+
+/*
+
+
+*/
 class DebugInjectorPass : public llvm::PassInfoMixin<DebugInjectorPass> {
   public:
     llvm::PreservedAnalyses run(llvm::Module &Module, llvm::ModuleAnalysisManager &);
@@ -408,16 +351,37 @@ llvm::PreservedAnalyses DebugInjectorPass::run(llvm::Module &Module, llvm::Modul
             continue;
         }
         for (llvm::BasicBlock &Block : Function) {
-            for (llvm::Instruction &Instruction : Block) {
-                auto *Call = llvm::dyn_cast<llvm::CallBase>(&Instruction);
-                if (Call == nullptr) {
-                    continue;
+            for (llvm::BasicBlock::iterator DI = Block.begin(); DI != Block.end(); ) {
+            // for (llvm::Instruction &Instruction : Block) {
+                llvm::Instruction &Inst = *DI++;
+                
+                if (auto *Call = llvm::dyn_cast<llvm::CallBase>(&Inst)) {
+                    if(llvm::Function *CurrentCallee = Call->getCalledFunction()){
+                        // if (CurrentCallee == Logger) {
+                        //     continue;
+                        // }
+                        
+                        if(CurrentCallee->getName().compare("_ZN5trust11stack_check17ignore_next_checkEm")==0){
+
+                            const llvm::Value * val = Call->getArgOperand(0);
+                            if(auto* ci = dyn_cast<llvm::ConstantInt>(val)){
+                                llvm::outs() << ci->getZExtValue() << "!!!\n";
+                            } else {
+
+                            }
+
+                            llvm::outs() << "Inst->eraseFromParent()\n";
+                            // Inst = 
+                            Inst.eraseFromParent();
+                            Changed = true;
+                            continue;
+                        } else {
+                            llvm::outs() << CurrentCallee->getName() << "\n";
+                        }
+
+                        // Changed |= instrumentCall(*Call, Logger);
+                    }
                 }
-                llvm::Function *CurrentCallee = Call->getCalledFunction();
-                if (CurrentCallee == Logger) {
-                    continue;
-                }
-                Changed |= instrumentCall(*Call, Logger);
             }
         }
     }
@@ -427,256 +391,6 @@ llvm::PreservedAnalyses DebugInjectorPass::run(llvm::Module &Module, llvm::Modul
     }
     return llvm::PreservedAnalyses::all();
 }
-
-// /*
-//  *
-//  *
-//  *
-//  */
-// struct LifeTime {
-//     typedef std::variant<std::monostate, const FunctionDecl *, const CXXRecordDecl *, const CXXTemporaryObjectExpr *, const CallExpr *,
-//                          const CXXMemberCallExpr *, const CXXOperatorCallExpr *, const MemberExpr *>
-//         ScopeType;
-//     /**
-//      * The scope and lifetime of variables (code block, function definition, function or method call, etc.)
-//      */
-//     const ScopeType scope;
-
-//     // Start location for FunctionDecl or other ...Calls, or End locattion for Stmt
-//     SourceLocation location;
-
-//     // Locattion for UNSAFE block or Invalid
-//     SourceLocation unsafeLoc;
-
-//     LifeTime(SourceLocation loc = SourceLocation(), const ScopeType c = std::monostate(), SourceLocation unsafe = SourceLocation())
-//         : location(loc), scope(c), unsafeLoc(unsafe) {}
-// };
-
-// class LifeTimeScope : SCOPE(protected) std::deque<LifeTime> { // use deque instead of vector as it preserves iterators when resizing
-
-//   public:
-//     const CompilerInstance &m_CI;
-
-//     LifeTimeScope(const CompilerInstance &inst) : m_CI(inst) {}
-
-//     SourceLocation testUnsafe() {
-//         auto iter = rbegin();
-//         while (iter != rend()) {
-//             if (iter->unsafeLoc.isValid()) {
-//                 return iter->unsafeLoc;
-//             }
-//             iter++;
-//         }
-//         return SourceLocation();
-//     }
-
-//     inline bool testInplaceCaller() {
-
-//         static_assert(std::is_same_v<std::monostate, std::variant_alternative_t<0, LifeTime::ScopeType>>);
-//         static_assert(std::is_same_v<const FunctionDecl *, std::variant_alternative_t<1, LifeTime::ScopeType>>);
-
-//         return back().scope.index() >= 2;
-//     }
-
-//     // std::string Dump(const SourceLocation &loc, std::string_view filter) {
-
-//     //     std::string result = STACK_CHECK_KEYWORD_START_DUMP;
-//     //     if (loc.isValid()) {
-//     //         if (loc.isMacroID()) {
-//     //             result += m_CI.getSourceManager().getExpansionLoc(loc).printToString(m_CI.getSourceManager());
-//     //         } else {
-//     //             result += loc.printToString(m_CI.getSourceManager());
-//     //         }
-//     //         result += ": ";
-//     //     }
-//     //     if (!filter.empty()) {
-//     //         //@todo Create Dump filter
-//     //         result += std::format(" filter '{}' not implemented!", filter.begin());
-//     //     }
-//     //     result += "\n";
-
-//     //     // auto iter = begin();
-//     //     // while (iter != end()) {
-
-//     //     //     if (iter->location.isValid()) {
-//     //     //         result += iter->location.printToString(m_CI.getSourceManager());
-
-//     //     //         std::string name = getName(iter->scope);
-//     //     //         if (!name.empty()) {
-//     //     //             result += " [";
-//     //     //             result += name;
-//     //     //             result += "]";
-//     //     //         }
-
-//     //     //     } else {
-//     //     //         result += " #static ";
-//     //     //     }
-
-//     //     //     result += ": ";
-
-//     //     //     std::string list;
-//     //     //     auto iter_list = iter->vars.begin();
-//     //     //     while (iter_list != iter->vars.end()) {
-
-//     //     //         if (!list.empty()) {
-//     //     //             list += ", ";
-//     //     //         }
-
-//     //     //         list += iter_list->first;
-//     //     //         iter_list++;
-//     //     //     }
-
-//     //     //     result += list;
-
-//     //     //     std::string dep_str;
-//     //     //     auto dep_list = iter->dependent.begin();
-//     //     //     while (dep_list != iter->dependent.end()) {
-
-//     //     //         if (!dep_str.empty()) {
-//     //     //             dep_str += ", ";
-//     //     //         }
-
-//     //     //         dep_str += "(";
-//     //     //         dep_str += dep_list->first;
-//     //     //         dep_str += "=>";
-//     //     //         dep_str += dep_list->second;
-//     //     //         dep_str += ")";
-
-//     //     //         dep_list++;
-//     //     //     }
-
-//     //     //     if (!dep_str.empty()) {
-//     //     //         result += " #dep ";
-//     //     //         result += dep_str;
-//     //     //     }
-
-//     //     //     std::string other_str;
-//     //     //     auto other_list = iter->other.begin();
-//     //     //     while (other_list != iter->other.end()) {
-
-//     //     //         if (!other_str.empty()) {
-//     //     //             other_str += ", ";
-//     //     //         }
-
-//     //     //         other_str += *other_list;
-//     //     //         other_list++;
-//     //     //     }
-
-//     //     //     if (!other_str.empty()) {
-//     //     //         result += " #other ";
-//     //     //         result += other_str;
-//     //     //     }
-
-//     //     //     result += "\n";
-//     //     //     iter++;
-//     //     // }
-//     //     return result;
-//     // }
-
-//     static std::string getName(const LifeTime::ScopeType &scope) {
-
-//         static_assert(std::is_same_v<const CallExpr *, std::variant_alternative_t<4, LifeTime::ScopeType>>);
-//         static_assert(std::is_same_v<const MemberExpr *, std::variant_alternative_t<7, LifeTime::ScopeType>>);
-
-//         const CallExpr *call = nullptr;
-//         if (std::holds_alternative<const MemberExpr *>(scope)) {
-//             //                llvm::outs() << "getMemberNameInfo(): " << std::get<const MemberExpr
-//             //                *>(scope)->getMemberDecl()->getNameAsString() << "\n";
-//             return std::get<const MemberExpr *>(scope)->getMemberNameInfo().getAsString();
-
-//         } else if (std::holds_alternative<const FunctionDecl *>(scope)) {
-
-//             return std::get<const FunctionDecl *>(scope)->getNameAsString();
-
-//         } else if (std::holds_alternative<const CXXMemberCallExpr *>(scope)) {
-//             call = std::get<const CXXMemberCallExpr *>(scope);
-//         } else if (std::holds_alternative<const CXXOperatorCallExpr *>(scope)) {
-//             call = std::get<const CXXOperatorCallExpr *>(scope);
-//         } else if (std::holds_alternative<const CallExpr *>(scope)) {
-//             call = std::get<const CallExpr *>(scope);
-//         }
-
-//         if (call) {
-//             return call->getDirectCallee()->getQualifiedNameAsString();
-//         }
-
-//         return "";
-//     }
-
-//     std::string getCalleeName() {
-//         auto iter = rbegin();
-//         while (iter != rend()) {
-//             std::string result = getName(iter->scope);
-//             if (!result.empty()) {
-//                 return result;
-//             }
-//             iter++;
-//         }
-//         return "";
-//     }
-
-//     void CheckRecursion(Stmt *st) {
-//         auto iter = rbegin();
-//         std::string name = getName(iter->scope);
-//         if (!name.empty()) {
-//             iter++;
-//             while (iter != rend()) {
-//                 if (name.compare(getName(iter->scope)) == 0) {
-
-//             //         if(){
-
-//             //         }
-//             // auto DB = S.getDiagnostics().Report(
-//             //     attr.getLoc(),
-//             //     S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error,
-//             //                                        "The attribute '" TO_STR(STACK_CHECK_KEYWORD_ATTRIBUTE) "' for '%0' is not
-//             applicable."));
-//             // DB.AddString(D->getDeclKindName());
-
-//                     Verbose(st->getBeginLoc(), std::format("Recursion call '{}'", name));
-//                     return;
-//                 }
-//                 iter++;
-//             }
-//         }
-//     }
-
-//     std::string getClassName() {
-//         auto iter = rbegin();
-//         while (iter != rend()) {
-//             if (std::holds_alternative<const CXXRecordDecl *>(iter->scope)) {
-//                 return std::get<const CXXRecordDecl *>(iter->scope)->getQualifiedNameAsString();
-//             }
-//             iter++;
-//         }
-//         return "";
-//     }
-
-//     SourceLocation testArgument() {
-//         auto iter = rbegin();
-//         while (iter != rend()) {
-//             if (iter->unsafeLoc.isValid()) {
-//                 return iter->unsafeLoc;
-//             }
-//             iter++;
-//         }
-//         return SourceLocation();
-//     }
-
-//     void PushScope(SourceLocation loc, LifeTime::ScopeType call = std::monostate(), SourceLocation unsafe = SourceLocation()) {
-//         push_back(LifeTime(loc, call, unsafe));
-//     }
-
-//     void PopScope() {
-//         assert(size() > 1); // First level reserved for static objects
-//         pop_back();
-//     }
-
-//     LifeTime &back() {
-//         assert(size()); // First level reserved for static objects
-//         return std::deque<LifeTime>::back();
-//     }
-// };
 
 // /*
 //  *
@@ -1451,79 +1165,79 @@ class TrustPlugin : public RecursiveASTVisitor<TrustPlugin> {
         return false;
     }
 
-    void printDumpIfEnabled(const Decl *decl) {
-        if (!decl || !isEnabledStatus() || m_dump_matcher.isEmpty() || skipLocation(m_dump_location, decl->getLocation())) {
-            return;
-        }
+    // // void printDumpIfEnabled(const Decl *decl) {
+    //     if (!decl || !isEnabledStatus() || m_dump_matcher.isEmpty() || skipLocation(m_dump_location, decl->getLocation())) {
+    //         return;
+    //     }
 
-        // Source location for IDE
-        llvm::outs() << decl->getLocation().printToString(m_CI.getSourceManager());
-        // Color highlighting
-        llvm::outs() << "  \033[1;46;34m";
-        // The string at the current position to expand the AST
+    //     // Source location for IDE
+    //     llvm::outs() << decl->getLocation().printToString(m_CI.getSourceManager());
+    //     // Color highlighting
+    //     llvm::outs() << "  \033[1;46;34m";
+    //     // The string at the current position to expand the AST
 
-        PrintingPolicy Policy(m_CI.getASTContext().getPrintingPolicy());
-        Policy.SuppressScope = false;
-        Policy.AnonymousTagLocations = true;
+    //     PrintingPolicy Policy(m_CI.getASTContext().getPrintingPolicy());
+    //     Policy.SuppressScope = false;
+    //     Policy.AnonymousTagLocations = true;
 
-        //@todo Create Dump filter
-        std::string output;
-        llvm::raw_string_ostream str(output);
-        decl->print(str, Policy);
+    //     //@todo Create Dump filter
+    //     std::string output;
+    //     llvm::raw_string_ostream str(output);
+    //     decl->print(str, Policy);
 
-        size_t pos = output.find("\n");
-        if (pos == std::string::npos) {
-            llvm::outs() << output;
-        } else {
-            llvm::outs() << output.substr(0, pos - 1);
-        }
+    //     size_t pos = output.find("\n");
+    //     if (pos == std::string::npos) {
+    //         llvm::outs() << output;
+    //     } else {
+    //         llvm::outs() << output.substr(0, pos - 1);
+    //     }
 
-        // Close color highlighting
-        llvm::outs() << "\033[0m ";
-        llvm::outs() << " dump:\n";
+    //     // Close color highlighting
+    //     llvm::outs() << "\033[0m ";
+    //     llvm::outs() << " dump:\n";
 
-        // Ast tree for current line
-        const ASTContext &Ctx = m_CI.getASTContext();
-        ASTDumper P(llvm::outs(), Ctx, /*ShowColors=*/true);
-        P.Visit(decl); // dyn_cast<Decl>(decl)
-    }
+    //     // Ast tree for current line
+    //     const ASTContext &Ctx = m_CI.getASTContext();
+    //     ASTDumper P(llvm::outs(), Ctx, /*ShowColors=*/true);
+    //     P.Visit(decl); // dyn_cast<Decl>(decl)
+    // }
 
-    void printDumpIfEnabled(const Stmt *stmt) {
-        if (!stmt || !isEnabledStatus() || m_dump_matcher.isEmpty() || skipLocation(m_dump_location, stmt->getBeginLoc())) {
-            return;
-        }
+    // void printDumpIfEnabled(const Stmt *stmt) {
+    //     if (!stmt || !isEnabledStatus() || m_dump_matcher.isEmpty() || skipLocation(m_dump_location, stmt->getBeginLoc())) {
+    //         return;
+    //     }
 
-        // Source location for IDE
-        llvm::outs() << stmt->getBeginLoc().printToString(m_CI.getSourceManager());
-        // Color highlighting
-        llvm::outs() << "  \033[1;46;34m";
-        // The string at the current position to expand the AST
+    //     // // Source location for IDE
+    //     // llvm::outs() << stmt->getBeginLoc().printToString(m_CI.getSourceManager());
+    //     // // Color highlighting
+    //     // llvm::outs() << "  \033[1;46;34m";
+    //     // // The string at the current position to expand the AST
 
-        PrintingPolicy Policy(m_CI.getASTContext().getPrintingPolicy());
-        Policy.SuppressScope = false;
-        Policy.AnonymousTagLocations = true;
+    //     // PrintingPolicy Policy(m_CI.getASTContext().getPrintingPolicy());
+    //     // Policy.SuppressScope = false;
+    //     // Policy.AnonymousTagLocations = true;
 
-        //@todo Create Dump filter
-        std::string output;
-        llvm::raw_string_ostream str(output);
-        stmt->printPretty(str, nullptr, Policy);
+    //     // //@todo Create Dump filter
+    //     // std::string output;
+    //     // llvm::raw_string_ostream str(output);
+    //     // stmt->printPretty(str, nullptr, Policy);
 
-        size_t pos = output.find("\n");
-        if (pos == std::string::npos) {
-            llvm::outs() << output;
-        } else {
-            llvm::outs() << output.substr(0, pos - 1);
-        }
+    //     // size_t pos = output.find("\n");
+    //     // if (pos == std::string::npos) {
+    //     //     llvm::outs() << output;
+    //     // } else {
+    //     //     llvm::outs() << output.substr(0, pos - 1);
+    //     // }
 
-        // Close color highlighting
-        llvm::outs() << "\033[0m ";
-        llvm::outs() << " dump:\n";
+    //     // // Close color highlighting
+    //     // llvm::outs() << "\033[0m ";
+    //     // llvm::outs() << " dump:\n";
 
-        // Ast tree for current line
-        const ASTContext &Ctx = m_CI.getASTContext();
-        ASTDumper P(llvm::outs(), Ctx, /*ShowColors=*/true);
-        P.Visit(stmt); // dyn_cast<Decl>(decl)
-    }
+    //     // // Ast tree for current line
+    //     // const ASTContext &Ctx = m_CI.getASTContext();
+    //     // ASTDumper P(llvm::outs(), Ctx, /*ShowColors=*/true);
+    //     // P.Visit(stmt); // dyn_cast<Decl>(decl)
+    // }
 
     /*
      *
@@ -1621,12 +1335,13 @@ class TrustPlugin : public RecursiveASTVisitor<TrustPlugin> {
     bool TraverseDecl(Decl *D) {
 
         // checkDumpFilter(D);
-        checkDeclAttributes(D);
+        // checkDeclAttributes(D);
         // printDumpIfEnabled(D);
 
         if (const FunctionDecl *func = dyn_cast_or_null<FunctionDecl>(D)) {
 
             if (isEnabled() && func->isDefined()) {
+                
 
                 // m_scopes.PushScope(D->getLocation(), func, m_scopes.testUnsafe());
 
@@ -1656,18 +1371,9 @@ class TrustPluginASTConsumer : public ASTConsumer {
   public:
     void HandleTranslationUnit(ASTContext &context) override {
 
-        context.getParentMapContext().setTraversalKind(clang::TraversalKind::TK_IgnoreUnlessSpelledInSource);
-        plugin->TraverseDecl(context.getTranslationUnitDecl());
+        // context.getParentMapContext().setTraversalKind(clang::TraversalKind::TK_IgnoreUnlessSpelledInSource);
+        // plugin->TraverseDecl(context.getTranslationUnitDecl());
 
-        // if (logger) {
-
-        //     llvm::outs().flush();
-        //     llvm::errs().flush();
-
-        //     logger->Dump(llvm::outs());
-        //     llvm::outs() << "\n";
-        //     plugin->dump(llvm::outs());
-        // }
     }
 };
 
@@ -1702,7 +1408,7 @@ class TrustPluginASTAction : public PluginASTAction {
         llvm::outs() << "CreateASTConsumer\n";
         std::unique_ptr<TrustPluginASTConsumer> obj = std::unique_ptr<TrustPluginASTConsumer>(new TrustPluginASTConsumer());
 
-        // Compiler.getCodeGenOpts().PassPlugins.push_back("stack_check_clang.so");
+        Compiler.getCodeGenOpts().PassPlugins.push_back("stack_check_clang.so");
 
         return obj;
     }
@@ -1716,18 +1422,18 @@ class TrustPluginASTAction : public PluginASTAction {
         return true;
     }
 
-    bool BeginInvocation(CompilerInstance &CI) override {
-        // // 1) Добавляем pass-plugin (то же, что даёт -fpass-plugin=...)
-        // CI.getCodeGenOpts().PassPlugins.push_back("/abs/path/libMyPassPlugin.so");
+    // bool BeginInvocation(CompilerInstance &CI) override {
+    //     // // 1) Добавляем pass-plugin (то же, что даёт -fpass-plugin=...)
+    //     // CI.getCodeGenOpts().PassPlugins.push_back("/abs/path/libMyPassPlugin.so");
 
-        llvm::outs() << "BeginInvocation\n";
-        // llvm::outs() <<CI <<"\n"; /// .getPassPlugins().size()
-        // CI.LoadRequestedPlugins ();
-        // CI.getFrontendOpts().LLVMArgs.push_back("-passes=stack_check");
-        // 2) Ничего больше не нужно, если pass-plugin сам добавляется в пайплайн
-        // через registerPipelineStartEPCallback / registerOptimizerLastEPCallback и т.п.
-        return true;
-    }
+    //     llvm::outs() << "BeginInvocation\n";
+    //     // llvm::outs() <<CI <<"\n"; /// .getPassPlugins().size()
+    //     // CI.LoadRequestedPlugins ();
+    //     // CI.getFrontendOpts().LLVMArgs.push_back("-passes=stack_check");
+    //     // 2) Ничего больше не нужно, если pass-plugin сам добавляется в пайплайн
+    //     // через registerPipelineStartEPCallback / registerOptimizerLastEPCallback и т.п.
+    //     return true;
+    // }
 
     template <class... Args> void PrintColor(raw_ostream &out, std::format_string<Args...> fmt, Args &&...args) {
 

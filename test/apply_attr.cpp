@@ -8,61 +8,55 @@
 // CHECK: Enable verbose mode
 
 // Правильное использование атрибута - на функции
-[[stack_check]]
+[[stack_check(0)]]
 void correct_function() {
-    // CHECK: {{.*}}: verbose: Apply attr 'stack_check' to correct_function
-    
-    [[stack_check_limit]]
-    correct_function();
-    // CHECK: {{.*}}: verbose: Apply attr 'stack_check_limit' to correct_function()
-
-    [[stack_check_limit(1)]]
-    correct_function();
-    // CHECK: {{.*}}: verbose: Apply attr 'stack_check_limit(1)' to correct_function()
-
-    [[stack_check_limit("2")]]
-    correct_function();
-    // CHECK: {{.*}}: verbose: Apply attr 'stack_check_limit("2")' to correct_function()
-    
-    [[stack_check_limit(3.3)]]
-    correct_function();
-    // CHECK: {{.*}}: verbose: Apply attr 'stack_check_limit(3.3)' to correct_function()
-    // CHECK-NEXT: {{.*}}: error: The expected argument is an integer or a string literal.
-    // CHECK-NEXT:{{.*}}stack_check_limit(3.3)
-
-    [[stack_check_limit("4","4")]]
-    correct_function();
-    // CHECK: {{.*}}: verbose: Apply attr 'stack_check_limit("4","4")' to correct_function()
-    // CHECK-NEXT:{{.*}}: error: An attribute can have at most one argument.
-    // CHECK-NEXT:{{.*}}stack_check_limit("4","4")
+  // CHECK: verbose: Apply attr 'stack_check(0)' to correct_function
 }
+
+[[stack_check(100)]]
+void correct_function2();
+  // CHECK: verbose: Apply attr 'stack_check(100)' to correct_function2
+
+[[stack_check(3.3)]]
+void correct_function2();
+// CHECK: error: The attribute argument must be a single integer.
+// CHECK-NEXT: stack_check(3.3)
+
+[[stack_check(4, 4)]]
+void correct_function3();
+// CHECK: error: 'stack_check' attribute takes one argument
+// CHECK-NEXT: stack_check(4, 4)
 
 // Правильное использование атрибута - на методе класса
 class CorrectClass {
-  public:
-    [[stack_check]]
-    void correct_method() {
-        // CHECK: {{.*}}: verbose: Apply attr 'stack_check' to CorrectClass::correct_method
-    }
+public:
+  [[stack_check(0)]]
+  void correct_method() {
+    // CHECK: verbose: Apply attr 'stack_check(0)' to CorrectClass::correct_method
+  }
 };
 
 // Неправильное использование атрибута - на переменной
-[[stack_check]]
+[[stack_check(99 )]]
 int incorrect_variable = 0;
-// CHECK: {{.*}}: error: The attribute 'stack_check' for 'Var' is not applicable.
+// CHECK: error: The attribute 'stack_check(99 )' for 'Var' is not applicable.
+// CHECK-NEXT: stack_check(99 )
+
 
 // Неправильное использование атрибута - на поле класса
 class IncorrectClass {
-    [[stack_check]]
-    int incorrect_field;
-    // CHECK: {{.*}}: error: The attribute 'stack_check' for 'Field' is not applicable.
+  [[stack_check(0)]]
+  int incorrect_field;
+  // CHECK: error: The attribute 'stack_check(0)' for 'Field' is not applicable.
 };
 
 // Неправильное использование атрибута - в пространстве имен
-namespace [[stack_check]] IncorrectNamespace {
-// CHECK: {{.*}}: error: The attribute 'stack_check' for 'Namespace' is not applicable.
+namespace [[stack_check(-1)]] IncorrectNamespace {
+// CHECK: error: The attribute argument must be a single integer.
+// CHECK-NEXT: stack_check(-1)
 }
 
 // Неправильное использование атрибута - на типе
-using InvalidType [[stack_check]] = int;
-// CHECK: {{.*}}: error: The attribute 'stack_check' for 'TypeAlias' is not applicable.
+using InvalidType [[stack_check(77)]] = int;
+// CHECK: error: The attribute 'stack_check(77)' for 'TypeAlias' is not applicable.
+// CHECK-NEXT: stack_check(77)
