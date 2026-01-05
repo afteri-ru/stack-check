@@ -27,6 +27,9 @@
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 
+#include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineFunctionPass.h"
+
 #include "clang/Lex/PreprocessorOptions.h"
 #include <charconv>
 #include <string_view>
@@ -102,150 +105,136 @@ static std::string LocToStr(const SourceLocation &loc, const SourceManager &sm) 
  * (only the number of arguments and their type are checked).
  */
 
- #define ATTR_STACK_CHECK "stack_check"
+#define ATTR_STACK_CHECK "stack_check"
 
-//  struct TrustAttrInfo : public ParsedAttrInfo {
+struct TrustAttrInfo : public ParsedAttrInfo {
 
+    TrustAttrInfo() {
 
-//     TrustAttrInfo() {
+        OptArgs = 0;
+        NumArgs = 1;
+        NumArgMembers = 1;
 
-//         OptArgs = 0;
-//         NumArgs = 1;
-//         NumArgMembers = 1;
+        IsType = false;
+        IsStmt = false;
+        IsKnownToGCC = false;
+        IsSupportedByPragmaAttribute = false;
 
-//         // IsType = false;
-//         // IsStmt = false;
-//         // IsKnownToGCC = false;
-//         // IsSupportedByPragmaAttribute = false;
+        static constexpr Spelling S[] = {
+            {ParsedAttr::AS_GNU, ATTR_STACK_CHECK},
+            {ParsedAttr::AS_C23, ATTR_STACK_CHECK},
+            {ParsedAttr::AS_CXX11, ATTR_STACK_CHECK},
+            {ParsedAttr::AS_CXX11, "::" ATTR_STACK_CHECK},
+            {ParsedAttr::AS_CXX11, "::trust::" ATTR_STACK_CHECK},
+        };
+        Spellings = S;
+    }
 
-//         static constexpr Spelling S[] = {
-//             {ParsedAttr::AS_GNU, ATTR_STACK_CHECK},         {ParsedAttr::AS_C23, ATTR_STACK_CHECK},
-//             {ParsedAttr::AS_CXX11, ATTR_STACK_CHECK},       {ParsedAttr::AS_CXX11, "::" ATTR_STACK_CHECK},
-//         };
-//         Spellings = S;
-//     }
+    std::string AttrStr(Sema &S, const ParsedAttr &attr) const {
+        std::string result;
+        SourceLocation loc = attr.getLoc();
+        if (loc.isMacroID()) {
+            result += attr.getNormalizedFullName();
+        } else {
+            result += Lexer::getSourceText(CharSourceRange::getTokenRange(attr.getRange()), S.getSourceManager(), S.getLangOpts());
+        }
+        return result;
+    }
 
-//     std::string AttrStr(Sema &S, const ParsedAttr &attr) const {
-//         std::string result;
-//         SourceLocation loc = attr.getLoc();
-//         if (loc.isMacroID()) {
-//             result += attr.getNormalizedFullName();
-//         } else {
-//             result += Lexer::getSourceText(CharSourceRange::getTokenRange(attr.getRange()), S.getSourceManager(), S.getLangOpts());
-//         }
-//         return result;
-//     }
+    AnnotateAttr *CreateAttr(Sema &S, const ParsedAttr &Attr) const {
 
-//     AnnotateAttr *CreateAttr(Sema &S, const ParsedAttr &Attr) const {
+        IntegerLiteral *literal = dyn_cast<IntegerLiteral>(Attr.getArgAsExpr(0)->IgnoreParenCasts());
 
-//         if (Attr.getNumArgs() != 1 || !isa<IntegerLiteral>(Attr.getArgAsExpr(0)->IgnoreParenCasts())) {
-//             // S.Diag(Attr.getLoc(),S.getDiagnostics().getCustomDiagID(
-//             //     DiagnosticsEngine::Error, "The attribute argument must be a single integer."));
-//             return nullptr;
-//         }
-
-//         SmallVector<Expr *, 1> ArgsBuf;
-//         ArgsBuf.push_back(Attr.getArgAsExpr(0));
-
-//         return AnnotateAttr::Create(S.Context, Attr.getAttrName()->getName(), ArgsBuf.data(), ArgsBuf.size(), Attr.getRange());
-//     }
-
-//     AttrHandling handleDeclAttribute(Sema &S, Decl *D, const ParsedAttr &attr) const override {
-
-//         if (const CXXMethodDecl *m = dyn_cast<CXXMethodDecl>(D)) {
-//             Verbose(attr.getLoc(), std::format("Apply attr '{}' to {}", AttrStr(S, attr), m->getQualifiedNameAsString()));
-//         } else if (const FunctionDecl *f = dyn_cast<FunctionDecl>(D)) {
-//             Verbose(attr.getLoc(), std::format("Apply attr '{}' to {}", AttrStr(S, attr), f->getQualifiedNameAsString()));
-//         } else {
-//             // auto DB = S.getDiagnostics().Report(
-//             //     attr.getLoc(),
-//             //     S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error, "The attribute '%0' for '%1' is not applicable."));
-//             // DB.AddString(AttrStr(S, attr));
-//             // DB.AddString(D->getDeclKindName());
-//             return AttributeNotApplied;
-//         }
-//         D->addAttr(CreateAttr(S, attr));
-//         return AttributeApplied;
-//     }
-// };
-
-
-    struct TrustAttrInfo : public ParsedAttrInfo {
-
-        TrustAttrInfo() {
-
-            OptArgs = 0;
-            NumArgs = 1;
-            NumArgMembers = 1;
-
-            IsType = false;
-            IsStmt = false;
-            IsKnownToGCC = false;
-            IsSupportedByPragmaAttribute = false;
-
-            static constexpr Spelling S[] = {
-                {ParsedAttr::AS_GNU, ATTR_STACK_CHECK},
-                {ParsedAttr::AS_C23, ATTR_STACK_CHECK},
-                {ParsedAttr::AS_CXX11, ATTR_STACK_CHECK},
-                {ParsedAttr::AS_CXX11, "::" ATTR_STACK_CHECK},
-                {ParsedAttr::AS_CXX11, "::trust::" ATTR_STACK_CHECK},
-            };
-            Spellings = S;
+        if (Attr.getNumArgs() != 1 || !literal) {
+            S.Diag(Attr.getLoc(),
+                   S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error, "The attribute argument must be a single integer."));
+            return nullptr;
         }
 
-        std::string AttrStr(Sema &S, const ParsedAttr &attr) const {
-            std::string result;
-            SourceLocation loc = attr.getLoc();
-            if (loc.isMacroID()) {
-                result += attr.getNormalizedFullName();
+        size_t stack_size = literal->getValue().getZExtValue();
+        if (stack_size == 0) {
+            S.Diag(Attr.getLoc(),
+                   S.getDiagnostics().getCustomDiagID(
+                       DiagnosticsEngine::Error, "I couldn't find a way to call MachineFunctionPass from an AST plugin or as a regular IR "
+                                                 "processing plugin, so automatic function stack size calculation is not supported yet."));
+        }
+
+        std::string annotate(ATTR_STACK_CHECK "=");
+        annotate += std::to_string(stack_size);
+        annotate += ";";
+        return AnnotateAttr::Create(S.Context, annotate, Attr); // ArgsBuf.data(), ArgsBuf.size(), Attr.getRange());
+    }
+
+    AttrHandling handleDeclAttribute(Sema &S, Decl *D, const ParsedAttr &Attr) const override {
+
+        if (auto attr = CreateAttr(S, Attr)) {
+            D->addAttr(attr);
+            if (isa<CXXMethodDecl>(D) || isa<FunctionDecl>(D)) {
+                Verbose(Attr.getLoc(),
+                        std::format("Apply attr '{}' to {}", AttrStr(S, Attr), dyn_cast<FunctionDecl>(D)->getQualifiedNameAsString()));
+                return AttributeApplied;
             } else {
-                result += Lexer::getSourceText(CharSourceRange::getTokenRange(attr.getRange()), S.getSourceManager(), S.getLangOpts());
+                auto DB = S.getDiagnostics().Report(
+                    Attr.getLoc(),
+                    S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error, "The attribute '%0' for '%1' is not applicable."));
+                DB.AddString(AttrStr(S, Attr));
+                DB.AddString(D->getDeclKindName());
             }
-            return result;
         }
-
-
-        AnnotateAttr * CreateAttr(Sema &S, const ParsedAttr &Attr) const {
-
-            if (Attr.getNumArgs() != 1 || !isa<IntegerLiteral>(Attr.getArgAsExpr(0)->IgnoreParenCasts())) {
-                S.Diag(Attr.getLoc(),S.getDiagnostics().getCustomDiagID(
-                    DiagnosticsEngine::Error, "The attribute argument must be a single integer."));
-                return nullptr;
-            }
-            return AnnotateAttr::Create(S.Context, ATTR_STACK_CHECK, Attr);//ArgsBuf.data(), ArgsBuf.size(), Attr.getRange());
-        }
-
-        AttrHandling handleDeclAttribute(Sema &S, Decl *D, const ParsedAttr &Attr) const override {
-
-            if (auto attr = CreateAttr(S, Attr)) {
-                D->addAttr(attr);
-                if (isa<CXXMethodDecl>(D) || isa<FunctionDecl>(D)) {
-                    Verbose(Attr.getLoc(), std::format("Apply attr '{}' to {}", 
-                        AttrStr(S, Attr), dyn_cast<FunctionDecl>(D)->getQualifiedNameAsString()));
-                    return AttributeApplied;
-                } else {
-                    auto DB = S.getDiagnostics().Report(
-                        Attr.getLoc(),
-                        S.getDiagnostics().getCustomDiagID(DiagnosticsEngine::Error, "The attribute '%0' for '%1' is not applicable."));
-                    DB.AddString(AttrStr(S, Attr));
-                    DB.AddString(D->getDeclKindName());
-                }
-            }
-            return AttributeNotApplied;
-        }
-
-        // AttrHandling handleStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &Attr, class Attr *&Result) const override {
-        //     if ((Result = CreateAttr(S, Attr))) {
-        //         return AttributeApplied;
-        //     }
-        //     return AttributeNotApplied;
-        // }
-    };
+        return AttributeNotApplied;
+    }
+};
 
 /*
 
 
 */
+
+static std::string getCStringFromGlobal(const llvm::Value *V) {
+    // ожидаем что это i8* на глобальную константу c"....\00"
+    V = V->stripPointerCasts();
+
+    auto *GV = dyn_cast<llvm::GlobalVariable>(V);
+    if (!GV || !GV->hasInitializer())
+        return {};
+
+    auto *CA = dyn_cast<llvm::ConstantDataArray>(GV->getInitializer());
+    if (!CA || !CA->isCString())
+        return {};
+
+    return CA->getAsCString().str();
+}
+
+static std::vector<std::string> getAnnotationsForValue(const llvm::Module &M, const llvm::Value *Target) {
+    std::vector<std::string> Out;
+
+    const llvm::GlobalVariable *GA = M.getNamedGlobal("llvm.global.annotations");
+    if (!GA || !GA->hasInitializer())
+        return Out;
+
+    const auto *CA = dyn_cast<llvm::ConstantArray>(GA->getInitializer());
+    if (!CA)
+        return Out;
+
+    for (const llvm::Use &Op : CA->operands()) {
+        const auto *CS = dyn_cast<llvm::ConstantStruct>(Op.get());
+        if (!CS || CS->getNumOperands() < 2)
+            continue;
+
+        // struct обычно вида: { i8* (ptr to annotated), i8* (ptr to annotation string), i8* file, i32 line, ... }
+        const llvm::Value *Annotated = CS->getOperand(0)->stripPointerCasts();
+        const llvm::Value *AnnStrPtr = CS->getOperand(1);
+
+        if (Annotated == Target) {
+            std::string S = getCStringFromGlobal(AnnStrPtr);
+            if (!S.empty())
+                Out.push_back(S);
+        }
+    }
+
+    return Out;
+}
+
 class DebugInjectorPass : public llvm::PassInfoMixin<DebugInjectorPass> {
   public:
     llvm::PreservedAnalyses run(llvm::Module &Module, llvm::ModuleAnalysisManager &);
@@ -256,130 +245,78 @@ class DebugInjectorPass : public llvm::PassInfoMixin<DebugInjectorPass> {
     llvm::Function *ensurePrintf(llvm::Module &Module);
     llvm::Function *ensureLogger(llvm::Module &Module);
     bool instrumentCall(llvm::CallBase &Call, llvm::Function *Logger);
+    bool insertCall(llvm::Module &Module, llvm::CallBase &Call, size_t size);
 };
 
+//@_ZN5trust11stack_check14check_overflowEm(i64 noundef 999999)
+
 llvm::Function *DebugInjectorPass::ensurePrintf(llvm::Module &Module) {
-    llvm::Function *Printf = Module.getFunction("printf");
-    if (Printf != nullptr) {
-        return Printf;
+    llvm::Function *check_overflow = Module.getFunction("_ZN5trust11stack_check14check_overflowEm");
+    if (check_overflow != nullptr) {
+        return check_overflow;
     }
 
     llvm::LLVMContext &Context = Module.getContext();
-    llvm::FunctionType *PrintfType = llvm::FunctionType::get(llvm::Type::getInt32Ty(Context), llvm::PointerType::get(Context, 0), true);
-    llvm::FunctionCallee Callee = Module.getOrInsertFunction("printf", PrintfType);
+    llvm::FunctionType *check_overflow_type =
+        llvm::FunctionType::get(llvm::Type::getVoidTy(Context), llvm::Type::getInt64Ty(Context), false);
+    llvm::FunctionCallee Callee = Module.getOrInsertFunction("_ZN5trust11stack_check14check_overflowEm", check_overflow_type);
     return llvm::cast<llvm::Function>(Callee.getCallee());
 }
 
-llvm::Function *DebugInjectorPass::ensureLogger(llvm::Module &Module) {
-    llvm::Function *Logger = Module.getFunction("debug_log");
-    if (Logger != nullptr && !Logger->empty()) {
-        return Logger;
-    }
-
-    llvm::LLVMContext &Context = Module.getContext();
-    llvm::Type *VoidType = llvm::Type::getVoidTy(Context);
-    llvm::Type *CharPtrType = llvm::PointerType::get(Context, 0);
-    llvm::FunctionType *LoggerType = llvm::FunctionType::get(VoidType, {CharPtrType}, false);
-
-    if (Logger == nullptr) {
-        Logger = llvm::Function::Create(LoggerType, llvm::GlobalValue::InternalLinkage, "debug_log", Module);
-    }
-
-    if (Logger->empty()) {
-        llvm::BasicBlock *Entry = llvm::BasicBlock::Create(Context, "entry", Logger);
-        llvm::IRBuilder<> Builder(Entry);
-        llvm::Function *Printf = ensurePrintf(Module);
-        llvm::Value *FormatValue = Builder.CreateGlobalString("Debug call before: %s\n", "debug_log.format");
-        Builder.CreateCall(Printf, {FormatValue, Logger->getArg(0)});
-        Builder.CreateRetVoid();
-    }
-
-    return Logger;
-}
-
-bool DebugInjectorPass::instrumentCall(llvm::CallBase &Call, llvm::Function *Logger) {
-    llvm::Function *Callee = Call.getCalledFunction();
-    if (Callee != nullptr) {
-        if (Callee == Logger) {
-            return false;
-        }
-        if (Callee->getName().starts_with("llvm.")) {
-            return false;
-        }
-
-        // llvm::outs() << Callee->getContext()->get;
-        llvm::outs() << "\n";
-        // for (const auto *Attr : Callee->getAttributes()) {
-        //   if (const auto *Ann = dyn_cast<AnnotateAttr>(Attr)) {
-
-        //     // if (Ann->getAnnotation() == kAnnotateName)
-        //     //   return true;
-        //   }
-        // }
-    }
+bool DebugInjectorPass::insertCall(llvm::Module &Module, llvm::CallBase &Call, size_t size) {
 
     llvm::IRBuilder<> Builder(Call.getContext());
     Builder.SetInsertPoint(&Call);
 
-    std::string CalleeName;
-    if (Callee != nullptr) {
-        CalleeName = Callee->getName().str();
-    } else {
-        CalleeName = "indirect-call";
-    }
-    if (CalleeName.empty()) {
-        CalleeName = "unnamed-call";
-    }
-
-    llvm::Value *NamePointer = Builder.CreateGlobalString(CalleeName, "debug.call.name");
-    Builder.CreateCall(Logger, {NamePointer});
+    llvm::Value *arg = Builder.getInt64(size);
+    Builder.CreateCall(ensurePrintf(Module), {arg});
     return true;
 }
 
 llvm::PreservedAnalyses DebugInjectorPass::run(llvm::Module &Module, llvm::ModuleAnalysisManager &) {
-    llvm::Function *Logger = ensureLogger(Module);
-    if (Logger == nullptr) {
-        return llvm::PreservedAnalyses::all();
-    }
+
+    size_t skip_injection = 0;
 
     bool Changed = false;
     for (llvm::Function &Function : Module) {
         if (Function.isDeclaration()) {
             continue;
         }
-        if (&Function == Logger) {
-            continue;
-        }
         for (llvm::BasicBlock &Block : Function) {
-            for (llvm::BasicBlock::iterator DI = Block.begin(); DI != Block.end(); ) {
-            // for (llvm::Instruction &Instruction : Block) {
+            for (llvm::BasicBlock::iterator DI = Block.begin(); DI != Block.end();) {
+                // for (llvm::Instruction &Instruction : Block) {
                 llvm::Instruction &Inst = *DI++;
-                
+
                 if (auto *Call = llvm::dyn_cast<llvm::CallBase>(&Inst)) {
-                    if(llvm::Function *CurrentCallee = Call->getCalledFunction()){
-                        // if (CurrentCallee == Logger) {
-                        //     continue;
-                        // }
-                        
-                        if(CurrentCallee->getName().compare("_ZN5trust11stack_check17ignore_next_checkEm")==0){
+                    if (llvm::Function *CurrentCallee = Call->getCalledFunction()) {
 
-                            const llvm::Value * val = Call->getArgOperand(0);
-                            if(auto* ci = dyn_cast<llvm::ConstantInt>(val)){
-                                llvm::outs() << ci->getZExtValue() << "!!!\n";
-                            } else {
+                        if (CurrentCallee->getName().compare("_ZN5trust11stack_check17ignore_next_checkEm") == 0) {
 
+                            const llvm::Value *val = Call->getArgOperand(0);
+                            if (auto *ci = dyn_cast<llvm::ConstantInt>(val)) {
+                                skip_injection = ci->getZExtValue();
+                                Verbose(SourceLocation(), std::format("Set skip injectioon to {}", skip_injection));
                             }
 
-                            llvm::outs() << "Inst->eraseFromParent()\n";
-                            // Inst = 
                             Inst.eraseFromParent();
                             Changed = true;
                             continue;
-                        } else {
-                            llvm::outs() << CurrentCallee->getName() << "\n";
                         }
 
-                        // Changed |= instrumentCall(*Call, Logger);
+                        auto Ann = getAnnotationsForValue(Module, CurrentCallee);
+                        if (!Ann.empty()) {
+                            for (auto &S : Ann) {
+                                if (S.find("stack_check=") != std::string::npos) {
+                                    size_t stack_size = atoi(&S[12]);
+                                    if (skip_injection) {
+                                        Verbose(SourceLocation(), std::format("Code injection skipped {}", skip_injection));
+                                        skip_injection--;
+                                    } else {
+                                        Changed |= insertCall(Module, *Call, stack_size);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1341,7 +1278,6 @@ class TrustPlugin : public RecursiveASTVisitor<TrustPlugin> {
         if (const FunctionDecl *func = dyn_cast_or_null<FunctionDecl>(D)) {
 
             if (isEnabled() && func->isDefined()) {
-                
 
                 // m_scopes.PushScope(D->getLocation(), func, m_scopes.testUnsafe());
 
@@ -1373,7 +1309,6 @@ class TrustPluginASTConsumer : public ASTConsumer {
 
         // context.getParentMapContext().setTraversalKind(clang::TraversalKind::TK_IgnoreUnlessSpelledInSource);
         // plugin->TraverseDecl(context.getTranslationUnitDecl());
-
     }
 };
 
