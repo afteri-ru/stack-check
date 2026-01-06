@@ -54,14 +54,14 @@
 
 #if defined __has_attribute
 #if __has_attribute( STACK_CHECK_KEYWORD_ATTRIBUTE )
-#define STACK_CHECK_ATTR(...) [[ STACK_CHECK_KEYWORD_ATTRIBUTE (__VA_ARGS__)]]
-#define STACK_CHECK_BASELINE(number) STACK_CHECK_ATTR( STACK_CHECK_KEYWORD_BASELINE, #number) void trust_stub();
+#define STACK_CHECK_SIZE(...) [[ STACK_CHECK_KEYWORD_ATTRIBUTE (__VA_ARGS__)]]
+#define STACK_CHECK_BASELINE(number) STACK_CHECK_SIZE( STACK_CHECK_KEYWORD_BASELINE, #number) void trust_stub();
 #endif
 #endif
 
 // Disable memory safety plugin attributes 
-#ifndef STACK_CHECK_ATTR
-#define STACK_CHECK_ATTR(...)
+#ifndef STACK_CHECK_SIZE
+#define STACK_CHECK_SIZE(...)
 #define STACK_CHECK_BASELINE(number)
 #define STACK_CHECK_DISABLE
 #endif
@@ -72,7 +72,7 @@
 #endif
 
 
-#define STACK_CHECK_PRINT_AST(filter) STACK_CHECK_ATTR(STACK_CHECK_KEYWORD_PRINT_AST, filter) void trust_stub();
+#define STACK_CHECK_PRINT_AST(filter) STACK_CHECK_SIZE(STACK_CHECK_KEYWORD_PRINT_AST, filter) void trust_stub();
 
 
 

@@ -8,6 +8,8 @@
 
 using namespace trust;
 
+const thread_local trust::stack_check trust::stack_check::info;
+
 // Глобальные переменные для отслеживания глубины рекурсии и количества вызовов
 int currentDepth = 0;
 int maxDepth = 0;

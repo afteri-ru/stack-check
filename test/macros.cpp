@@ -12,12 +12,17 @@
 
 // ON: Enable verbose mode
 
-// Правильное использование атрибута - на функции
-STACK_CHECK_ATTR(0)
+STACK_CHECK_SIZE(0)
 void correct_function() {
     // OFF: error:
     // ON: error: I couldn't find a way to call MachineFunctionPass from an AST
-    // ON: verbose: Apply attr 'stack_check' to correct_function
+    // ON: verbose: Apply attr 'stack_check_size' to correct_function
+}
+
+STACK_CHECK_LIMIT
+void correct_function_limit() {
+    // OFF: error:
+    // ON: verbose: Apply attr 'stack_check_limit' to correct_function_limit
 }
 
 
@@ -25,12 +30,16 @@ void other_function() {
     // ON-NOT: verbose
 }
 
-// Правильное использование атрибута - на методе класса
 class CorrectClass {
   public:
-    STACK_CHECK_ATTR(100)
+    STACK_CHECK_SIZE(100)
     void correct_method() {
         // OFF: error
-        // ON: verbose: Apply attr 'stack_check' to CorrectClass::correct_method
+        // ON: verbose: Apply attr 'stack_check_size' to CorrectClass::correct_method
+    }
+    STACK_CHECK_LIMIT
+    void correct_method_limit() {
+        // OFF: error
+        // ON: verbose: Apply attr 'stack_check_limit' to CorrectClass::correct_method_limit
     }
 };

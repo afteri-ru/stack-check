@@ -105,7 +105,11 @@ static std::string LocToStr(const SourceLocation &loc, const SourceManager &sm) 
  * (only the number of arguments and their type are checked).
  */
 
-#define ATTR_STACK_CHECK "stack_check"
+#define ATTR_STACK_CHECK "stack_check_size"
+#define ATTR_STACK_LIMIT "stack_check_limit"
+
+static const std::string stack_check_size(ATTR_STACK_CHECK);
+static const std::string stack_check_limit(ATTR_STACK_LIMIT);
 
 struct TrustAttrInfo : public ParsedAttrInfo {
 
@@ -126,6 +130,12 @@ struct TrustAttrInfo : public ParsedAttrInfo {
             {ParsedAttr::AS_CXX11, ATTR_STACK_CHECK},
             {ParsedAttr::AS_CXX11, "::" ATTR_STACK_CHECK},
             {ParsedAttr::AS_CXX11, "::trust::" ATTR_STACK_CHECK},
+
+            {ParsedAttr::AS_GNU, ATTR_STACK_LIMIT},
+            {ParsedAttr::AS_C23, ATTR_STACK_LIMIT},
+            {ParsedAttr::AS_CXX11, ATTR_STACK_LIMIT},
+            {ParsedAttr::AS_CXX11, "::" ATTR_STACK_LIMIT},
+            {ParsedAttr::AS_CXX11, "::trust::" ATTR_STACK_LIMIT},
         };
         Spellings = S;
     }
@@ -151,15 +161,16 @@ struct TrustAttrInfo : public ParsedAttrInfo {
             return nullptr;
         }
 
+        std::string annotate(Attr.getAttrName()->getName());
         size_t stack_size = literal->getValue().getZExtValue();
-        if (stack_size == 0) {
+        if (stack_size == 0 && annotate.compare(stack_check_size)==0) {
             S.Diag(Attr.getLoc(),
                    S.getDiagnostics().getCustomDiagID(
                        DiagnosticsEngine::Error, "I couldn't find a way to call MachineFunctionPass from an AST plugin or as a regular IR "
                                                  "processing plugin, so automatic function stack size calculation is not supported yet."));
         }
-
-        std::string annotate(ATTR_STACK_CHECK "=");
+        
+        annotate += "=";
         annotate += std::to_string(stack_size);
         annotate += ";";
         return AnnotateAttr::Create(S.Context, annotate, Attr); // ArgsBuf.data(), ArgsBuf.size(), Attr.getRange());
@@ -242,15 +253,11 @@ class DebugInjectorPass : public llvm::PassInfoMixin<DebugInjectorPass> {
     static bool isRequired() { return true; }
 
   private:
-    llvm::Function *ensurePrintf(llvm::Module &Module);
-    llvm::Function *ensureLogger(llvm::Module &Module);
-    bool instrumentCall(llvm::CallBase &Call, llvm::Function *Logger);
-    bool insertCall(llvm::Module &Module, llvm::CallBase &Call, size_t size);
+    llvm::Function *FuncCheckSize(llvm::Module &Module);
+    llvm::Function *FuncCheckLimit(llvm::Module &Module);
 };
 
-//@_ZN5trust11stack_check14check_overflowEm(i64 noundef 999999)
-
-llvm::Function *DebugInjectorPass::ensurePrintf(llvm::Module &Module) {
+llvm::Function *DebugInjectorPass::FuncCheckSize(llvm::Module &Module) {
     llvm::Function *check_overflow = Module.getFunction("_ZN5trust11stack_check14check_overflowEm");
     if (check_overflow != nullptr) {
         return check_overflow;
@@ -263,18 +270,24 @@ llvm::Function *DebugInjectorPass::ensurePrintf(llvm::Module &Module) {
     return llvm::cast<llvm::Function>(Callee.getCallee());
 }
 
-bool DebugInjectorPass::insertCall(llvm::Module &Module, llvm::CallBase &Call, size_t size) {
+llvm::Function *DebugInjectorPass::FuncCheckLimit(llvm::Module &Module) {
+    llvm::Function *check_limit = Module.getFunction("_ZN5trust11stack_check11check_limitEv");
+    if (check_limit != nullptr) {
+        return check_limit;
+    }
 
-    llvm::IRBuilder<> Builder(Call.getContext());
-    Builder.SetInsertPoint(&Call);
-
-    llvm::Value *arg = Builder.getInt64(size);
-    Builder.CreateCall(ensurePrintf(Module), {arg});
-    return true;
+    llvm::LLVMContext &Context = Module.getContext();
+    llvm::FunctionType *check_limit_type =
+        llvm::FunctionType::get(llvm::Type::getVoidTy(Context), false);
+    llvm::FunctionCallee Callee = Module.getOrInsertFunction("_ZN5trust11stack_check11check_limitEv", check_limit_type);
+    return llvm::cast<llvm::Function>(Callee.getCallee());
 }
+
 
 llvm::PreservedAnalyses DebugInjectorPass::run(llvm::Module &Module, llvm::ModuleAnalysisManager &) {
 
+    llvm::Function *check_limit = FuncCheckLimit(Module);
+    llvm::Function *check_size = FuncCheckSize(Module);
     size_t skip_injection = 0;
 
     bool Changed = false;
@@ -306,15 +319,29 @@ llvm::PreservedAnalyses DebugInjectorPass::run(llvm::Module &Module, llvm::Modul
                         auto Ann = getAnnotationsForValue(Module, CurrentCallee);
                         if (!Ann.empty()) {
                             for (auto &S : Ann) {
-                                if (S.find("stack_check=") != std::string::npos) {
-                                    size_t stack_size = atoi(&S[12]);
+                                if (S.find(stack_check_size) != std::string::npos) {
+                                    size_t stack_size = atoi(&S[stack_check_size.size()+1]);
                                     if (skip_injection) {
-                                        Verbose(SourceLocation(), std::format("Code injection skipped {}", skip_injection));
+                                        Verbose(SourceLocation(), std::format("Code injection skipped {} for {}", skip_injection, S));
                                         skip_injection--;
                                     } else {
-                                        Changed |= insertCall(Module, *Call, stack_size);
+                                        llvm::IRBuilder<> Builder(Call->getContext());
+                                        Builder.SetInsertPoint(Call);
+                                        Builder.CreateCall(check_size, {Builder.getInt64(stack_size)});
+                                        Changed = true;
+                                    }
+                                } else if (S.find(stack_check_limit) != std::string::npos) {
+                                    if (skip_injection) {
+                                        Verbose(SourceLocation(), std::format("Code injection skipped {} for {}", skip_injection, S));
+                                        skip_injection--;
+                                    } else {
+                                        llvm::IRBuilder<> Builder(Call->getContext());
+                                        Builder.SetInsertPoint(Call);
+                                        Builder.CreateCall(check_limit);
+                                        Changed = true;
                                     }
                                 }
+
                             }
                         }
                     }

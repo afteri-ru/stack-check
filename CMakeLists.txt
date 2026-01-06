@@ -33,7 +33,6 @@ function(setup_test_target TARGET_NAME TEST_FILE OPTIMIZATION_LEVEL IS_UNIT_TEST
         add_executable(${TARGET_NAME}
             ${TEST_FILE}
             test/unit2_test.cpp
-            stack_check.cpp
         )
         target_link_libraries(${TARGET_NAME} 
             GTest::GTest 
@@ -42,7 +41,6 @@ function(setup_test_target TARGET_NAME TEST_FILE OPTIMIZATION_LEVEL IS_UNIT_TEST
     else()
         add_executable(${TARGET_NAME}
             ${TEST_FILE}
-            stack_check.cpp
         )
     endif()
 

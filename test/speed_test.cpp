@@ -8,6 +8,8 @@
 
 using namespace trust;
 
+const thread_local trust::stack_check trust::stack_check::info;
+
 bool isNumber(const std::string &str, long &num) {
     if (str.empty())
         return false;

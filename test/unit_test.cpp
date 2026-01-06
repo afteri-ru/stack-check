@@ -8,6 +8,8 @@
 
 using namespace trust;
 
+const thread_local trust::stack_check trust::stack_check::info;
+
 // Тест для проверки получения размера стека
 TEST(StackInfoTest, GetStackSize) {
     size_t stack_size = stack_check::get_stack_size();
