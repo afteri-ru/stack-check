@@ -12,6 +12,12 @@
  * and requires a check for free stack space before calling.
  * A value of 0 or no parameter means that the amount of free stack space 
  * for the marked function or class method is calculated automatically.
+
+ * @def STACK_CHECK_LIMIT
+ *  This macro is used to mark a function or class method with the C++ attribute, 
+ * and for which a check for free stack space is required before calling it using 
+ * the @ref check_limit::check_limit function. 
+ * The size to be checked is set during program compilation using the @ref STACK_SIZE_LIMIT macro.
  */
         
 #ifdef __has_cpp_attribute
@@ -150,6 +156,11 @@ inline bool trust::stack_check::get_stack_info(void *&top, void *&bottom) {
     pthread_attr_destroy(&attr);
 
     top = static_cast<char *>(bottom) + stack_size;
+
+    // Explicitly calling control functions prevents the linker from removing 
+    // them during optimization due to the lack of direct calls in other code.
+    check_limit();
+    check_overflow(stack_check::limit);
 
     return top > bottom;
 }

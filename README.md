@@ -1,79 +1,152 @@
 # Proof of concept for automatic stack overflow checking when calling functions.
 
-The project is implemented within the concept of [trusted programming in C++](https://github.com/afteri-ru/trusted-cpp) and the realization of secure programming guarantees at the source code level.
+## Description of Stack Overflow Protection for C++
 
-The implementation is provided as an auxiliary `stack_chack.h` file and a Clang plugin that processes the program’s source text and adds to the generated code the checks required to protect the stack from overflow.
+This project is intended to prevent segmentation faults due to stack overflow, which always lead to abnormal termination of the application (the project was created as part of implementing the concept of [trusted programming in C++](https://github.com/afteri-ru/trusted-cpp), which provides safe programming guarantees at the source code level).
 
-The source-level implementation consists in adding a custom C++ attribute `[[stack_check]]`, which is handled by the compiler plugin and can be used either at a function (class method) definition or immediately before a function (class method) call as follows:
+The main idea is to check the available stack space before calling a protected function, and if it is insufficient, throw a `stack_overflow` program exception, which can be caught and handled within the application without waiting for a segmentation fault caused by a program/thread stack overflow.
 
-- `[[stack_check_size(N)]]`, where N is greater than zero — insert a manual check of free stack space and, if the free stack space is less than N, a stack_overflow exception will be generated. If the attribute is used at the function definition, the stack overflow check will be inserted automatically before each call to that function. The attribute can be specified immediately before any function call, in which case the free‑stack‑space check code will be inserted at that location once.
+The file `stack_check.h` contains the necessary programming primitives for manual use, whereas `stack_check_clang.cpp` implements a Clang plugin that, at the IR code generation stage, automatically inserts calls to stack overflow checking functions before protected functions. Protected functions can be annotated individually in C++ code using an attribute, ~~or they can be specified using a name mask by passing it in the compiler plugin parameters.~~ **\***
 
-- `[[stack_check_size(-1)]]` — cancel insertion of code to check free stack space. The attribute can be specified immediately before any function call, in which case the free‑stack‑space check code will not be inserted at that location, even if the function was previously defined with the *stack_check* attribute.
+### Usage examples
 
-- `[[stack_check]]` or `[[stack_check_size(0)]]` at the function definition — enable automatic free‑stack‑space checking before each call to this function, with the stack size to check computed automatically.
+To mark functions and class methods that require checking the free space on the stack before calling them, C++ custom attributes are used, which are expanded using the `STACK_CHECK_SIZE(size)` and `STACK_CHECK_LIMT` macros:
 
-Computing the required stack size for a function call depends on many factors, such as the target platform, optimization level, the calling convention of the particular function, etc., which is why it cannot be computed by an AST‑based static analyzer and can only be determined after machine instructions are generated.
+- The `STACK_CHECK_SIZE(size)` attribute takes a single integer argument—the size of the free stack space that will be automatically checked before calling the protected function. ~~If the argument is zero, the size of the free stack space will be computed automatically when generating the executable code of the protected function~~. **\*\***
 
-Moreover, if the stack size for a function with stack overflow protection is to be computed automatically, then all functions it calls must also be protected against stack overflow. This can be implemented either by using functions with automatic stack overflow protection, or by placing the attribute directly before the remaining function calls with the manually specified free‑stack‑space size to check, i.e., `[[stack_check_size(N)]]`, where N is an integer greater than zero.
+- The `STACK_CHECK_LIMT` attribute also checks the size of the free stack space, which is specified at application compile time. The stack usage size for each function can be determined by specifying the -fstack-usage option during compilation, which saves to a \*.su file a list of all functions and the stack size required for them.
+
+Automatic insertion of code before a protected function can be disabled. To do this, insert a call in the C++ code to the helper static method `ignore_next_check(const size_t)`, passing the number of upcoming code insertions that will be skipped (removed) from the generated (executable) file.
 
 ```cpp
-[[stack_check]]
-int stack_guard_func() {
-    int temp[10] = {0};
+#include "stack_check.h"
 
-    [[stack_check_size(100)]]
-    stack_unguard_func();
+using namespace trust;
+
+const thread_local stack_check stack_check::info;
+
+// Function without automatic stack overflow checking
+int func() {
+    ...
+}
+
+// Before each call to the function, code will be inserted to check the specified free stack space
+[[stack_check_size(100)]]
+int guard_size_func() {
+    char data[92];
+    ...
+}
+
+// Before each call to the function, the minimum free stack space will be checked
+STACK_CHECK_LIMIT
+int guard_limit_func() {
+    ...
+}
+
+int main() {
+
+    // Code for stack overflow control will be automatically added here
+    guard_size_func();
+
+    stack_check::ignore_next_check(1); // The next automatic stack check insertion will be ignored
+    guard_size_func();
+
+    // Code to check the minimum free stack space will be automatically added here
+    guard_limit_func();
+
+    stack_check::check_overflow(10000); // Manual check of free stack space
+    func();
 
     return 0;
 }
 ```
 
-## Implementation details and overhead
 
-The required amount of free stack space to call a function consists of two components:
-- the amount of free stack space sufficient for the direct call of the current function;
-- a fixed reserve size sufficient for creating an exception with error information and for performing all necessary accompanying function calls, which may also require stack space in the current thread.
+After this, the file is compiled using the clang plugin:
+```bash
+clang++ -std=c++20 -Xclang -load -Xclang stack_check_clang.so -Xclang -add-plugin -Xclang stack_check -lpthread filename.cpp
+```
 
-The fixed reserve size for error handling depends on the implementation and is affected by the target platform, operating system, program optimization level, and other factors. At present, a reserve size of 4500 bytes is used for error handling, and during free‑stack‑space checks it is automatically added to the stack size being checked for a function call.
+----
+**\***) - specifying protected functions using a name mask is not yet implemented  
+**\*\***) - this functionality is not implemented in the compiler plugin, as no way was found to insert an analyzer pass after generating machine code.
 
-The core stack overflow checking functionality resides in the file `stack_check.h`, in the `trust::stack_check` structure. Information about the stack size is stored in static fields of the structure that are per-thread (Thread-Local Storage, TLS), which allows querying the stack parameters once per thread during structure initialization, and when checking the amount of free stack space using the `stack_check::check_overflow(N)` method, only comparing the current stack pointer against the lower boundary of the memory region allocated for the stack.
+## Implementation details
 
-A stack overflow check, even under maximum optimization, cannot be shorter than two machine instructions (a compare operation and a short branch), which inevitably adds time to a function (subroutine) call.
+The final stack size required for a function call depends on many factors, such as the target platform, the optimization level of the program, the calling convention of the specific function, etc. Because of this, it cannot be computed using a static analyzer based on the AST or by analyzing the IR; it can only be determined after generating machine instructions for the specific target platform.
 
-As a “speed gauge,” a program for finding prime numbers by a recursive method from the file `prime_check.cpp` was used (as tests, the Towers of Hanoi and a recursive algorithm for summing the digits of a long number were also tried, but in the first case the stack depth needed to trigger an overflow requires a very long runtime, and writing out a long number that causes a stack overflow takes several screens, which is also inconvenient for testing).
+Moreover, for the purposes of automatic checking (for functions marked with the `stack_check_size` or `stack_check_limit` attributes), the minimum size of the free stack space cannot be less than a certain fixed threshold required to create a program exception with error information. The size of such a threshold depends on the implementation and is influenced by the target platform, operating system, optimization level, and other factors.
 
-Assessment of the impact of stack overflow checking on application performance: without optimization (**-O0**), execution time increases by approximately *8%–14%*, and with maximum optimization (**-O3**) by roughly *0.5%–1.5%* (total application runtime about *2 seconds*).
+The main stack overflow control functionality is in the `trust::stack_check` class. Information about the stack size is stored in static class fields, individually for each thread (Thread Local — thread-local storage, TLS), which allows querying stack parameters once per thread when initializing the structure, and when checking the free stack space using the `stack_check::check_overflow(N)` method, comparing the current stack pointer with the lower bound of the memory region allocated for the stack.
 
-Ideally (to minimize overhead), it is best to compute the stack usage for all functions in the program and always use the maximum value (since loading the value into a register before the comparison also consumes CPU cycles and memory accesses). In this case, for any sequential calls to functions within a single block, it is sufficient to check the available stack space only before calling the first function.
+To use it, you must define the static variable `const thread_local trust::stack_check trust::stack_check::info`, and to specify the minimum free stack space limit, assign the corresponding value to the `STACK_SIZE_LIMIT` macro.
+
+## Overhead
+
+Checking the stack for overflow, even with maximum optimization, cannot be shorter than two machine instructions (a compare operation and a short branch), which inevitably adds time to a function call.
+
+As a “speed meter,” a recursive prime finder program from `prime_check.cpp` was used (as tests, the Tower of Hanoi and a recursive algorithm for summing digits of a long number were also tried, but the stack depth required to check overflow in the first case requires a very long runtime, and writing out the long number that triggers a stack overflow takes several screens, which is also inconvenient for testing purposes).
+
+```bash
+$ ./prime-check-O3
+Usage: ./prime-check-O3 <start_number> [count]
+
+$ ./prime-check-O3 9999999999999999
+Stack overflow exception at: 104588 call depth.
+Stack top: 0x7fffdc634000 bottom: 0x7fffdbe36000 (stack size: 8380416)
+Query size: 10000 end frame: 0x7fffdbe386a0 (free space: 9888)
+
+$ ./prime-check-O3 10000000000 1000
+10000000019
+10000000033
+10000000061
+...
+10000022899
+10000022909
+Max recursion depth SAFE: 100000
+Number of recursive calls SAFE: 117539009
+Execution time SAFE: 18227634 microseconds
+
+Max recursion depth: 100000
+Number of recursive calls: 117539009
+Execution time: 17925080 microseconds
+Difference in execution time: 1.68788 %
+```
+
+Assessment of the impact of stack overflow checking on application performance: without optimization (-O0), the execution time increases by approximately *1%–5%*, and with maximum optimization (-O3), by approximately *0.5%–2%* (the total application runtime is about *15 seconds*).
+
+Ideally (to minimize overhead), it is best to compute the stack size for all functions in the program and always use the maximum value (since loading a value into a register before the compare also requires CPU cycles and memory access). In this case, for any sequence of function calls within one block, it is sufficient to check the free stack space only before the first call.
 
 
 --------
-
+--------
+--------
 
 ## Описание защиты стека от переполнения для C++
 
-Проект создан в рамках реализации концепции [доверенного программирования на C++](https://github.com/afteri-ru/trusted-cpp), которая обеспечивает гарантии безопасного программирования на уровне исходного текста программы. Данный проект предназначен для предотвращения ошибок сегментации памяти из-за переполнения стека, которые всегда приводят к аварийному завершению работы приложения.
+Данный проект предназначен для предотвращения ошибок сегментации памяти из-за переполнения стека, которые всегда приводят к аварийному завершению работы приложения (проект создан в рамках реализации концепции [доверенного программирования на C++](https://github.com/afteri-ru/trusted-cpp), которая обеспечивает гарантии безопасного программирования на уровне исходного текста программы).
 
-Основная идея заключается в проверке свободного места на стеке перед вызовм защищаемой функции, и если его не достаоточно, то выбрасывается программное исключение `stack_overflow`, которое можно перехватить и обработать изнутри приложения не дожидаясь возникновения ошшибки сигментирования из-за переполнения стека программы/потока.
+Основная идея заключается в проверке свободного места на стеке перед вызовом защищаемой функции, и если его недостаточно, то выбрасывается программное исключение `stack_overflow`, которое можно перехватить и обработать изнутри приложения, не дожидаясь возникновения ошибки сегментирования из-за переполнения стека программы/потока.
 
-В фйле `stack_check.h` находятся необходимые программные примитивы для ручного применения, тогда как в файле `stack_check_clang.cpp` релизован  плагин для Clang, который на этапе геренарции IR кода автоматичсеки вставялет вызовы функций контроля стека от переполнения перед защищаемыи функциями. Защищаемые функции могут быть отмечены индивидуально в коде C++ с помощью атрибута, ~~либо их можно указать с помощью маски имен, передав её в параметрах плагина компилятора.~~ **\***
-
+В файле `stack_check.h` находятся необходимые программные примитивы для ручного применения, тогда как в файле `stack_check_clang.cpp` реализован плагин для Clang, который на этапе генерации IR-кода автоматически вставляет вызовы функций контроля стека от переполнения перед защищаемыми функциями. Защищаемые функции могут быть отмечены индивидуально в коде C++ с помощью атрибута, ~~либо их можно указать с помощью маски имён, передав её в параметрах плагина компилятора.~~ **\***
 
 ### Примеры использования
 
-Для маркировки функций и методов классов, перед вызвом которых требуется проверка свободного места на стеке, используются C++ атрибуты `[[stack_check_size( const size_t )]]` и `[[stack_check_limit]]`:
+Для маркировки функций и методов классов, перед вызовом которых требуется проверка свободного места на стеке, используются пользовательские атрибуты C++, которые раскрываются с помощью макросов `STACK_CHECK_SIZE(size)` и `STACK_CHECK_LIMT`:
 
-- Атрибут `[[stack_check_size( const size_t )]]` принимает один аргумент в виде целого числа - размер свободного пространства на стеке, который будет автоматически проверяться перед вызовом защищаемой функции. ~~Если в качестве арумента указан ноль, то размер свободного простарнства на стеке будет вычисляться автоматически при генерации исполняемого кода защищаемой функции~~.**\*\*** 
+- Атрибут `STACK_CHECK_SIZE(size)` принимает один аргумент в виде целого числа - размер свободного пространства на стеке, который будет автоматически проверяться перед вызовом защищаемой функции. ~~Если в качестве аргумента указан ноль, то размер свободного пространства на стеке будет вычисляться автоматически при генерации исполняемого кода защищаемой функции~~. **\*\***
 
-- Атрубет `[[stack_check_limit]]` тоже проверяет размер свободного пространства на стеке, который задается при компиляции приложения. *Размер использования стека для каждой функции можно выяснить, указав при компиляции опцию -fstack-usage, которая сохраняет в файле \*.su список всех функций и требуемый для них размер стека*.
+- Атрибут `STACK_CHECK_LIMIT` тоже проверяет размер свободного пространства на стеке, который задаётся при компиляции приложения. *Размер использования стека для каждой функции можно выяснить, указав при компиляции опцию -fstack-usage, которая сохраняет в файле \*.su список всех функций и требуемый для них размер стека*.
 
-Автоматическу вставку кода перед защищаемой функцией можно отметить. Для этого требуется вставить в С++ коде вызов вспомогательного статического метода `ignore_next_check(const size_t)`, которому передается количество следующих вставок кода, которые будет пропущены (уделны) из генерируемого (исполняемого) файла.
+Автоматическую вставку кода перед защищаемой функцией можно отменить. Для этого требуется вставить в C++ коде вызов вспомогательного статического метода `ignore_next_check(const size_t)`, которому передаётся количество следующих вставок кода, которые будут пропущены (удалены) из генерируемого (исполняемого) файла.
 
-
+Пример кода для использования библиотеки:
 ```cpp
 #include "stack_check.h"
 
-const thread_local trust::stack_check trust::stack_check::info;
+using namespace trust;
+
+const thread_local stack_check stack_check::info;
 
 // Функция без автоматической проверки стека от переполнения
 int func() {
@@ -87,52 +160,80 @@ int guard_size_func() {
     ...
 }
 
-// Перед каждым вызовом функции будет проверятся минимальный размер свободного места на стеке
-[[stack_check_limit]]
-int guard_limit_func() {
+// Перед каждым вызовом функции будет проверяться минимальный размер свободного места на стеке
+STACK_CHECK_LIMIT
+int guard_limit_func() { 
     ...
 }
 
-int main(){
+int main() {
 
-    // Тут будут автоматически добавлен код для контроля стека от переполнения
-    guard_size_func(); 
+    // Тут будет автоматически добавлен код для контроля стека от переполнения
+    guard_size_func();
 
     stack_check::ignore_next_check(1); // Следующая автоматическая вставка проверки стека будет проигнорирована
     guard_size_func();
 
-    // Тут будут автоматически добавлен код для проверки минимального размера свободного места на стеке
+    // Тут будет автоматически добавлен код для проверки минимального размера свободного места на стеке
     guard_limit_func();
 
-    stack_check::check_overflow(10000); // Ручная проврка свободного места на стеке
+    stack_check::check_overflow(10000); // Ручная проверка свободного места на стеке
     func();
 
     return 0;
 }
 ```
+После чего файл компилируется с подключением clang плагина:
+```bash
+clang++ -std=c++20 -Xclang -load -Xclang stack_check_clang.so -Xclang -add-plugin -Xclang stack_check -lpthread filename.cpp
+```
 
 ----
-**\***) - указание защищаемых функций с помощью маски имен пока не реализовано
-**\*\***) - даная функциональность в плагине компилятора не реализована, так как не нашел способа встроить проход анализатора после генерации машинного кода.
-
+**\***) - указание защищаемых функций с помощью маски имён пока не реализовано  
+**\*\***) - данная функциональность в плагине компилятора не реализована, так как не нашёл способа встроить проход анализатора на этапе генерации машинного кода.
 
 ## Детали реализации
 
-Финальный размера стека для вызова функции зависит от множества факторов, таких как целевая платформа, степень оптимизации программы, соглашение о вызове конкретной функции и т. д., из-за чего его нельзя вычислить с помощью статического анализатора кода на основе AST или проанализировав IR представление, а можно определить только после генерации машинных инструкций под конкретную целевую платформу.
+Финальный размер стека для вызова функции зависит от множества факторов, таких как целевая платформа, степень оптимизации программы, соглашение о вызове конкретной функции и т. д., из-за чего его нельзя вычислить с помощью статического анализатора кода на основе AST или проанализировав IR-представление, а можно определить только на этапе генерации машинных инструкций под конкретную целевую платформу.
 
-Причем, для целей автоматического контроля (для фукнций, отмеченных атрибутом `stack_check_size` или `stack_check_limit`), минимальный размер совбодного простарнства на стеке не может быть меньше определенного фиксированного порога, который требуется для создания програмного исключения с информацией об ошибке. Размер такого прога зависит от реализации, и на него влияет целевая платформа, операционная система, степень оптимизации программы и прочие факторы. 
+Причём для целей автоматического контроля (для функций, отмеченных атрибутом `stack_check_size` или `stack_check_limit`) минимальный размер свободного пространства на стеке не может быть меньше определённого фиксированного порога, который требуется для создания программного исключения с информацией об ошибке. Размер такого порога зависит от реализации, и на него влияет целевая платформа, операционная система, степень оптимизации программы и прочие факторы.
 
-Основная функциональность контроля переполнения стека находится в классе `trust::stack_check`. Информация о размере стека хранится в статических полях класса, индивидуально для каждого потока (*Thread Local* - локальное хранилище потоков, TLS), что позволяет однократно запрашивать параметры стека для каждого потока при инициализации структуры, а при проверке размера свободного места на стеке с помощью метода `stack_check::check_overflow(N)` - только сравнивать текущий указатель стека с нижней границей выделенной под стек области памяти.
+Основная функциональность контроля переполнения стека находится в классе `trust::stack_check`. Информация о размере стека хранится в статических полях класса, индивидуально для каждого потока (*Thread Local* - локальное хранилище потоков, TLS), что позволяет однократно запрашивать параметры стека для каждого потока при инициализации структуры, а при проверке размера свободного места на стеке с помощью метода `stack_check::check_overflow(N)` сравнивать текущий указатель стека с нижней границей выделенной под стек области памяти.
 
-Для использования необходимо определить статическую переменную `const thread_local trust::stack_check trust::stack_check::info`, 
-а для указания минимального лимита свободного пространтсва на стеке присвоить соотвествующее значение макросу `STACK_SIZE_LIMIT`.
+Для использования необходимо определить статическую переменную `const thread_local trust::stack_check trust::stack_check::info`, а для указания минимального лимита свободного пространства на стеке присвоить соответствующее значение макросу `STACK_SIZE_LIMIT`.
 
 ## Накладные расходы
 
 Проверка стека на переполнение, даже в случае максимальной оптимизации, не может быть короче двух машинных инструкций (операции сравнения и инструкции короткого перехода), что, безусловно, добавляет время к вызову функции.
 
-*В качестве "измерителя скорости" использовал программу нахождения простых чисел рекурсивным методом из файла `prime_check.cpp` (в качестве тестов также пробовал ханойские башни и рекурсивный алгоритм подсчета суммы цифр у длинного числа, но глубина стека для проверки переполнения в первом случае требует очень большой продолжительности работы алгоритма, а запись длинного числа, при котором возникает переполнение стека, занимает несколько экранов, что тоже неудобно для целей тестирования).*
+*В качестве "измерителя скорости" использовал программу нахождения простых чисел рекурсивным методом из файла `prime_check.cpp` (в качестве тестов также пробовал ханойские башни и рекурсивный алгоритм подсчёта суммы цифр у длинного числа, но глубина стека для проверки переполнения в первом случае требует очень большой продолжительности работы алгоритма, а запись длинного числа, при котором возникает переполнение стека, занимает несколько экранов, что тоже неудобно для целей тестирования).*
 
-Оценка влияния контроля переполнения стека на скорость работы приложения: без оптимизации (**-O0**) - время выполнения увеличивается примерно на *8%*-*14%*, а при максимальной оптимизации (**-O3**) - примерно на *0,5-1,5%* (общее время выполнения приложения около *2 секунд*).
+```bash
+$ ./prime-check-O3
+Usage: ./prime-check-O3 <start_number> [count]
+
+$ ./prime-check-O3 9999999999999999
+Stack overflow exception at: 104588 call depth.
+Stack top: 0x7fffdc634000 bottom: 0x7fffdbe36000 (stack size: 8380416)
+Query size: 10000 end frame: 0x7fffdbe386a0 (free space: 9888)
+
+$ ./prime-check-O3 10000000000 1000
+10000000019
+10000000033
+10000000061
+...
+10000022899
+10000022909
+Max recursion depth SAFE: 100000
+Number of recursive calls SAFE: 117539009
+Execution time SAFE: 18227634 microseconds
+
+Max recursion depth: 100000
+Number of recursive calls: 117539009
+Execution time: 17925080 microseconds
+Difference in execution time: 1.68788 %
+```
+
+Оценка влияния контроля переполнения стека на скорость работы приложения: без оптимизации (-O0) - время выполнения увеличивается примерно на *1%*-*5%*, а при максимальной оптимизации (-O3) - примерно на *0,5-2%* (общее время выполнения приложения около *15 секунд*).
 
 В идеальном виде (если стремиться к минимальным накладным расходам) лучше всего вычислять размер стека для всех функций программы и всегда использовать максимальное значение (ведь загрузка значения в регистр перед операцией сравнения также требует тактов процессора и обращения к памяти). В этом случае при любых последовательных вызовах функций в одном блоке достаточно будет проконтролировать свободное место на стеке только перед вызовом первой функции.

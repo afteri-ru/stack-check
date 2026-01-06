@@ -11,9 +11,9 @@
 - Explain your reasoning before submitting code.
 - Focus on code readability and maintainability.
 - Upon task completion, the final report should include the model name, the initial task, and all summary statistics for interactions with the model.
-- Don't use `using namespace clang` or `using namespace llvm`, always specify namespaces explicitly.
+- Don't use `using namespace`, always specify namespaces explicitly.
 
 ## File Rules
-- `stack_check.h` and `stack_check.cpp` contains stack overflow checker.
+- `stack_check.h` contains stack overflow checker.
 - `stack_check_clang.cpp` is a clang plugin designed for compilation into a dynamic library.
-- Dir `test` contains all test programma and any test files for LIT and Google Test Framework.
+- Dir `test` contains all test programma and any test files for LIT - LLVM Integrated Tester and Google Test Framework.

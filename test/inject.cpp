@@ -79,22 +79,25 @@ int main() {
     // O0-NEXT: call void @_ZN5trust11stack_check14check_overflowEm(i64 100)
     // O0-NEXT: call void @_Z15inject_functionv()
 
-    // O3-NEXT: call void @_ZN5trust11stack_check14check_overflowEm(i64 100)
-    // O3-NEXT: call void @_Z15inject_functionv()
+    // The function call is converted into inline code by the optimizer.
+    // COM: O3-NEXT: call void @_ZN5trust11stack_check14check_overflowEm(i64 100)
+    //O3: call void @_Z15inject_functionv()
 
     inject_limit();
     // O0-NEXT: call void @_ZN5trust11stack_check11check_limitEv()
     // O0-NEXT: call void @_Z12inject_limitv()
 
-    // O3-NEXT: call void @_ZN5trust11stack_check11check_limitEv()
-    // O3-NEXT: call void @_Z12inject_limitv()
+    // The function call is converted into inline code by the optimizer.
+    // COM: O3-NEXT: call void @_ZN5trust11stack_check11check_limitEv()
+    //O3: call void @_Z12inject_limitv()
 
     TestClass::inject_method();
     // O0-NEXT: call void @_ZN5trust11stack_check14check_overflowEm(i64 99)
     // O0-NEXT: call void @_ZN9TestClass13inject_methodEv()
 
-    // O3-NEXT: call void @_ZN5trust11stack_check14check_overflowEm(i64 99)
-    // O3-NEXT: call void @_ZN9TestClass13inject_methodEv()
+    // The function call is converted into inline code by the optimizer.
+    // COM: O3-NEXT: call void @_ZN5trust11stack_check14check_overflowEm(i64 99) 
+    //O3: call void @_ZN9TestClass13inject_methodEv()
 
     return 0;
 }

@@ -1,6 +1,6 @@
 #pragma once
-#ifndef INCLUDED_TRUST_PLUGIN_H_
-#define INCLUDED_TRUST_PLUGIN_H_
+#ifndef INCLUDED_STACK_CHECK_PLUGIN_H_
+#define INCLUDED_STACK_CHECK_PLUGIN_H_
 
 #include <string>
 #include <vector>
@@ -8,13 +8,9 @@
 #include <unordered_set>
 #include <map>
 
-// #include <yaml-cpp/yaml.h>
 #include <stdio.h>
-// #include <filesystem>
 #include <fstream>
 #include <chrono>
-
-
 
 
 #ifdef BUILD_UNITTEST
@@ -32,53 +28,7 @@
  */
 
 
-#define STACK_CHECK_KEYWORD_ATTRIBUTE stack_check
-#define STACK_CHECK_KEYWORD_PROFILE "profile"
-#define STACK_CHECK_KEYWORD_STATUS "status"
-#define STACK_CHECK_KEYWORD_UNSAFE "unsafe"
-#define STACK_CHECK_KEYWORD_PRINT_AST "print-ast"
-
-#define STACK_CHECK_KEYWORD_ENABLE "enable"
-#define STACK_CHECK_KEYWORD_DISABLE "disable"
-#define STACK_CHECK_KEYWORD_PUSH "push"
-#define STACK_CHECK_KEYWORD_POP "pop"
-
-// maximum diagnostic level of plugin message when error is detected in source code
-#define STACK_CHECK_KEYWORD_LEVEL "level"
-#define STACK_CHECK_KEYWORD_ERROR "error"
-#define STACK_CHECK_KEYWORD_WARNING "warning"
-#define STACK_CHECK_KEYWORD_NOTE "note"
-#define STACK_CHECK_KEYWORD_REMARK "remark"
-#define STACK_CHECK_KEYWORD_IGNORED "ignored"
-
-
-#if defined __has_attribute
-#if __has_attribute( STACK_CHECK_KEYWORD_ATTRIBUTE )
-#define STACK_CHECK_SIZE(...) [[ STACK_CHECK_KEYWORD_ATTRIBUTE (__VA_ARGS__)]]
-#define STACK_CHECK_BASELINE(number) STACK_CHECK_SIZE( STACK_CHECK_KEYWORD_BASELINE, #number) void trust_stub();
-#endif
-#endif
-
-// Disable memory safety plugin attributes 
-#ifndef STACK_CHECK_SIZE
-#define STACK_CHECK_SIZE(...)
-#define STACK_CHECK_BASELINE(number)
-#define STACK_CHECK_DISABLE
-#endif
-
-#ifndef TO_STR
-#define TO_STR2(ARG) #ARG
-#define TO_STR(ARG) TO_STR2(ARG)
-#endif
-
-
-#define STACK_CHECK_PRINT_AST(filter) STACK_CHECK_SIZE(STACK_CHECK_KEYWORD_PRINT_AST, filter) void trust_stub();
-
-
-
 namespace trust {
-
-    namespace fs = std::filesystem;
 
     // Copy-Past form https://github.com/google/googletest
 
@@ -162,7 +112,7 @@ namespace trust {
     public:
         StringMatcher() = default;
 
-        // Constructs a filter from a string of patterns separated by `:`.
+        // Constructs a filter from a string of patterns separated by semicolon `;`.
 
         explicit StringMatcher(const std::string& filter, const char separator = ';') {
             Create(filter, separator);
@@ -197,19 +147,6 @@ namespace trust {
                     });
         }
 
-        //        bool MatchesNameColor(std::string& name, const char *start = "",, const char *stop = "") const {
-        //            if (exact_match_patterns_.count(name)) {
-        //            } else {
-        //            }
-        //            return  ||
-        //                    std::any_of(glob_patterns_.begin(), glob_patterns_.end(),
-        //                    [&name](const std::string & pattern) {
-        //                        return PatternMatchesString(
-        //                                name, pattern.c_str(),
-        //                                pattern.c_str() + pattern.size());
-        //                    });
-        //        }
-
         bool isEmpty() {
             return glob_patterns_.empty() && exact_match_patterns_.empty();
         }
@@ -242,4 +179,4 @@ namespace trust {
         return result;
     }
 }
-#endif // INCLUDED_TRUST_PLUGIN_H_
+#endif // INCLUDED_STACK_CHECK_PLUGIN_H_
