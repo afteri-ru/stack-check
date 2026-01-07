@@ -23,12 +23,12 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             printUsage
             exit 0
-            ;;
+        ;;
         -*)
             echo "Unknown argument: $1" >&2
             printUsage >&2
             exit 2
-            ;;
+        ;;
         *)
             # This should be a directory path
             if [[ -n "${rootDir:-}" ]]; then
@@ -38,7 +38,7 @@ while [[ $# -gt 0 ]]; do
             fi
             rootDir="$1"
             shift
-            ;;
+        ;;
     esac
 done
 

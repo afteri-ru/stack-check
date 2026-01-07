@@ -10,17 +10,17 @@
 // Правильное использование атрибута - на функции
 [[stack_check_size(0)]]
 void correct_function() {
-  // CHECK: verbose: Apply attr 'stack_check_size(0)' to correct_function
+    // CHECK: verbose: Apply attr 'stack_check_size(0)' to correct_function
 }
 
 [[stack_check_limit(0)]]
 void correct_function_limit() {
-  // CHECK: verbose: Apply attr 'stack_check_limit(0)' to correct_function_limit
+    // CHECK: verbose: Apply attr 'stack_check_limit(0)' to correct_function_limit
 }
 
 [[stack_check_size(100)]]
 void correct_function2();
-  // CHECK: verbose: Apply attr 'stack_check_size(100)' to correct_function2
+// CHECK: verbose: Apply attr 'stack_check_size(100)' to correct_function2
 
 [[stack_check_size(3.3)]]
 void correct_function2();
@@ -34,25 +34,24 @@ void correct_function3();
 
 // Правильное использование атрибута - на методе класса
 class CorrectClass {
-public:
-  [[stack_check_size(0)]]
-  void correct_method() {
-    // CHECK: verbose: Apply attr 'stack_check_size(0)' to CorrectClass::correct_method
-  }
+  public:
+    [[stack_check_size(0)]]
+    void correct_method() {
+        // CHECK: verbose: Apply attr 'stack_check_size(0)' to CorrectClass::correct_method
+    }
 };
 
 // Неправильное использование атрибута - на переменной
-[[stack_check_size(99 )]]
+[[stack_check_size(99)]]
 int incorrect_variable = 0;
-// CHECK: error: The attribute 'stack_check_size(99 )' for 'Var' is not applicable.
-// CHECK-NEXT: stack_check_size(99 )
-
+// CHECK: error: The attribute 'stack_check_size(99)' for 'Var' is not applicable.
+// CHECK-NEXT: stack_check_size(99)
 
 // Неправильное использование атрибута - на поле класса
 class IncorrectClass {
-  [[stack_check_size(0)]]
-  int incorrect_field;
-  // CHECK: error: The attribute 'stack_check_size(0)' for 'Field' is not applicable.
+    [[stack_check_size(0)]]
+    int incorrect_field;
+    // CHECK: error: The attribute 'stack_check_size(0)' for 'Field' is not applicable.
 };
 
 // Неправильное использование атрибута - в пространстве имен

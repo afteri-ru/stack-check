@@ -6,8 +6,6 @@
 // RUN: -Xclang -plugin-arg-stack_check -Xclang verbose  %s 2>&1  \
 // RUN: | FileCheck %s -check-prefix=ON
 
-
-
 #include "stack_check.h"
 
 // ON: Enable verbose mode
@@ -24,7 +22,6 @@ void correct_function_limit() {
     // OFF: error:
     // ON: verbose: Apply attr 'stack_check_limit' to correct_function_limit
 }
-
 
 void other_function() {
     // ON-NOT: verbose

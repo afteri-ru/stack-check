@@ -33,19 +33,18 @@ class TestClass {
     [[clang::optnone]] static void inject_method() {}
 };
 
+const thread_local trust::stack_check info;
 
-const thread_local trust::stack_check info;  
+size_t inplace_code(size_t size) {
+    if (static_cast<char *>(__builtin_frame_address(0)) < (static_cast<char *>(info.bottom) + size)) {
+        trust::stack_check::throw_stack_overflow(size, info);
+    }
 
-size_t inplace_code(size_t size){
-  if (static_cast<char *>(__builtin_frame_address(0)) < (static_cast<char *>(info.bottom) + size)) {
-    trust::stack_check::throw_stack_overflow(size, info);
-  }
-
-  // No need for addition operator before comparison and more opportunities for optimization
-  if (static_cast<char *>(__builtin_frame_address(0)) < (static_cast<char *>(info.bottom_limit))) {
-      trust::stack_check::throw_stack_overflow(info.limit, info);
-  }  
-  return size;
+    // No need for addition operator before comparison and more opportunities for optimization
+    if (static_cast<char *>(__builtin_frame_address(0)) < (static_cast<char *>(info.bottom_limit))) {
+        trust::stack_check::throw_stack_overflow(info.limit, info);
+    }
+    return size;
 }
 
 int main() {
@@ -74,14 +73,14 @@ int main() {
 
     // The automatic code injection skip counter has been exhausted,
     // now it is necessary to automatically insert the code to check for free space in the stack.
-    
+
     inject_function();
     // O0-NEXT: call void @_ZN5trust11stack_check14check_overflowEm(i64 100)
     // O0-NEXT: call void @_Z15inject_functionv()
 
     // The function call is converted into inline code by the optimizer.
     // COM: O3-NEXT: call void @_ZN5trust11stack_check14check_overflowEm(i64 100)
-    //O3: call void @_Z15inject_functionv()
+    // O3: call void @_Z15inject_functionv()
 
     inject_limit();
     // O0-NEXT: call void @_ZN5trust11stack_check11check_limitEv()
@@ -89,15 +88,15 @@ int main() {
 
     // The function call is converted into inline code by the optimizer.
     // COM: O3-NEXT: call void @_ZN5trust11stack_check11check_limitEv()
-    //O3: call void @_Z12inject_limitv()
+    // O3: call void @_Z12inject_limitv()
 
     TestClass::inject_method();
     // O0-NEXT: call void @_ZN5trust11stack_check14check_overflowEm(i64 99)
     // O0-NEXT: call void @_ZN9TestClass13inject_methodEv()
 
     // The function call is converted into inline code by the optimizer.
-    // COM: O3-NEXT: call void @_ZN5trust11stack_check14check_overflowEm(i64 99) 
-    //O3: call void @_ZN9TestClass13inject_methodEv()
+    // COM: O3-NEXT: call void @_ZN5trust11stack_check14check_overflowEm(i64 99)
+    // O3: call void @_ZN9TestClass13inject_methodEv()
 
     return 0;
 }
