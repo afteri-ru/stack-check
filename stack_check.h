@@ -5,43 +5,44 @@
 #include <cstdint>
 #include <stdexcept>
 
-
 /**
  * @def STACK_CHECK_SIZE(...)
- * This macro is used to mark a function or class method with a C++ attribute 
+ * This macro is used to mark a function or class method with a C++ attribute
  * and requires a check for free stack space before calling.
- * A value of 0 or no parameter means that the amount of free stack space 
+ * A value of 0 or no parameter means that the amount of free stack space
  * for the marked function or class method is calculated automatically.
 
  * @def STACK_CHECK_LIMIT
- *  This macro is used to mark a function or class method with the C++ attribute, 
- * and for which a check for free stack space is required before calling it using 
- * the @ref check_limit::check_limit function. 
+ *  This macro is used to mark a function or class method with the C++ attribute,
+ * and for which a check for free stack space is required before calling it using
+ * the @ref check_limit::check_limit function.
  * The size to be checked is set during program compilation using the @ref STACK_SIZE_LIMIT macro.
  */
-        
+
 #ifdef __has_cpp_attribute
 
 #if __has_cpp_attribute(trust)
 
-#define STACK_CHECK_SIZE(size)  [[trust("stack_check_size", size)]]
-#define STACK_CHECK_LIMIT       [[trust("stack_check_limit", 0)]]
+#define STACK_CHECK_SIZE(size) [[trust("stack_check_size", size)]]
+#define STACK_CHECK_LIMIT [[trust("stack_check_limit", 0)]]
 
 #elif __has_cpp_attribute(stack_check_size)
 
-#define STACK_CHECK_SIZE(size)  [[stack_check_size(size)]]
-#define STACK_CHECK_LIMIT       [[stack_check_limit(0)]]
+#define STACK_CHECK_SIZE(size) [[stack_check_size(size)]]
+#define STACK_CHECK_LIMIT [[stack_check_limit(0)]]
 
 #else // plugins not loaded
-#define STACK_CHECK_SIZE(size)                                                                                                            \
-    static_assert(!"The 'stack_check_size' attribute is not supported. Run the compiler with the 'stack_check' or 'trusted-cpp' plugins.");
-#define STACK_CHECK_LIMIT                                                                                                               \
-    static_assert(!"The 'stack_check_limit' attribute is not supported. Run the compiler with the 'stack_check' or 'trusted-cpp' plugins.");
+#define STACK_CHECK_SIZE(size)                                                                                                             \
+    static_assert(!"The 'stack_check_size' attribute is not supported. Run the compiler with the 'stack_check' or 'trusted-cpp' "          \
+                   "plugins.");
+#define STACK_CHECK_LIMIT                                                                                                                  \
+    static_assert(!"The 'stack_check_limit' attribute is not supported. Run the compiler with the 'stack_check' or 'trusted-cpp' "         \
+                   "plugins.");
 #endif
 
 #else // #ifdef __has_cpp_attribute
-#define STACK_CHECK_SIZE(...)   static_assert(!"The __has_cpp_attribute macro is not supported.");
-#define STACK_CHECK_LIMIT()     static_assert(!"The __has_cpp_attribute macro is not supported.");
+#define STACK_CHECK_SIZE(...) static_assert(!"The __has_cpp_attribute macro is not supported.");
+#define STACK_CHECK_LIMIT() static_assert(!"The __has_cpp_attribute macro is not supported.");
 #endif
 
 namespace trust {
@@ -49,7 +50,7 @@ namespace trust {
 struct stack_check;
 struct stack_overflow : public std::runtime_error {
     size_t size;
-    const stack_check * info;
+    const stack_check *info;
     stack_overflow(size_t size, const stack_check *stack) : std::runtime_error("Stack overflow"), size(size), info(stack) {}
 };
 
@@ -57,10 +58,9 @@ struct stack_overflow : public std::runtime_error {
 #define STACK_SIZE_LIMIT 4096
 #endif // STACK_SIZE_LIMIT
 
-
 /*
-* To use, you must define the static variable `const thread_local trust::stack_check trust::stack_check::info`
-*/
+ * To use, you must define the static variable `const thread_local trust::stack_check trust::stack_check::info`
+ */
 struct stack_check {
     static constexpr size_t limit = STACK_SIZE_LIMIT;
     void *top;
@@ -70,13 +70,13 @@ struct stack_check {
 
     static const thread_local stack_check info;
 
-    stack_check() : top(nullptr), bottom(nullptr), bottom_limit(nullptr), frame(nullptr) { 
+    stack_check() : top(nullptr), bottom(nullptr), bottom_limit(nullptr), frame(nullptr) {
         get_stack_info(const_cast<stack_check *>(&info)->top, const_cast<stack_check *>(&info)->bottom);
         *const_cast<void **>(&info.bottom_limit) = static_cast<char *>(info.bottom) + limit;
     }
 
     static bool get_stack_info(void *&top, void *&bottom);
-    
+
     static inline size_t get_stack_size() { return static_cast<char *>(info.top) - static_cast<char *>(info.bottom); }
 
     static inline size_t get_free_stack_space() {
@@ -93,8 +93,8 @@ struct stack_check {
     }
 
     /*
-    * There may be some premature optimization (fewer instructions when checking for free space on the stack).
-    */
+     * There may be some premature optimization (fewer instructions when checking for free space on the stack).
+     */
     static inline void check_limit() {
         // No need for addition operator before comparison and more opportunities for optimization
         if (static_cast<char *>(__builtin_frame_address(0)) < (static_cast<char *>(info.bottom_limit))) {
@@ -106,16 +106,57 @@ struct stack_check {
         *const_cast<void **>(&info.frame) = __builtin_frame_address(0);
         throw stack_overflow(size, &info);
     }
-    
-    /**
-    * This helper method is used to pass to the stack_check plugin 
-    * (the number of stack overflow checks to skip—either those added automatically 
-    * by the plugin (using the @ref STACK_CHECK_SIZE macro).
-    * A value of 0 disables ignoring checks.
-    */
-   [[clang::optnone]] static void ignore_next_check(const size_t size) {}
 
+    /**
+     * This helper method is used to pass to the stack_check plugin
+     * (the number of stack overflow checks to skip—either those added automatically
+     * by the plugin (using the @ref STACK_CHECK_SIZE macro).
+     * A value of 0 disables ignoring checks.
+     */
+    [[clang::optnone]] static void ignore_next_check(const size_t size) {}
 };
+
+/*
+ * Tag types for constructor and destructor
+ */
+struct ctor_t {};
+struct dtor_t {};
+inline constexpr ctor_t ctor{};
+inline constexpr dtor_t dtor{};
+
+template <typename R, typename... Args> void *getAddr(R (*f)(Args...)) { return reinterpret_cast<void *>(f); }
+
+template <typename M> std::enable_if_t<std::is_member_function_pointer_v<M>, void *> getAddr(M m) {
+    struct {
+        void *a;
+        ptrdiff_t d;
+    } *p = reinterpret_cast<decltype(p)>(&m);
+    return p->a;
+}
+
+template <typename M> std::enable_if_t<std::is_member_function_pointer_v<M>, void *> getAddr(M m, void *o) {
+    struct {
+        void *a;
+        ptrdiff_t d;
+    } *p = reinterpret_cast<decltype(p)>(&m);
+    if (reinterpret_cast<uintptr_t>(p->a) & 1) {
+        return o ? (*reinterpret_cast<void ***>(o))[(reinterpret_cast<ptrdiff_t>(p->a) - 1) / sizeof(void *)] : nullptr;
+    }
+    return p->a;
+}
+
+template <typename T> void *getAddr(ctor_t, T * = nullptr) {
+    static auto w = [](void *p) { new (p) T(); };
+    return reinterpret_cast<void *>(+w);
+}
+
+template <typename T> void *getAddr(dtor_t, T *o = nullptr) {
+    if constexpr (std::is_polymorphic_v<T>)
+        if (o)
+            return (*reinterpret_cast<void ***>(o))[1];
+    static auto w = [](void *p) { static_cast<T *>(p)->~T(); };
+    return reinterpret_cast<void *>(+w);
+}
 
 }; // namespace trust
 
@@ -144,7 +185,14 @@ size_t get_free_stack_space() {
 
 #else
 
+#include <elf.h>
+#include <fcntl.h>
+#include <link.h>
 #include <pthread.h>
+#include <string_view>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 inline bool trust::stack_check::get_stack_info(void *&top, void *&bottom) {
     pthread_attr_t attr;
@@ -157,7 +205,7 @@ inline bool trust::stack_check::get_stack_info(void *&top, void *&bottom) {
 
     top = static_cast<char *>(bottom) + stack_size;
 
-    // Explicitly calling control functions prevents the linker from removing 
+    // Explicitly calling control functions prevents the linker from removing
     // them during optimization due to the lack of direct calls in other code.
     check_limit();
     check_overflow(stack_check::limit);
@@ -165,7 +213,140 @@ inline bool trust::stack_check::get_stack_info(void *&top, void *&bottom) {
     return top > bottom;
 }
 
-#endif
+// Helper structures for managing mapped ELF file
+struct MappedELF {
+    void *mapped;
+    size_t size;
 
+    MappedELF() : mapped(nullptr), size(0) {
+
+        int fd = open("/proc/self/exe", O_RDONLY);
+        if (fd < 0) {
+            throw std::runtime_error("Error open file '/proc/self/exe'!");
+        }
+
+        struct stat st;
+        if (fstat(fd, &st) < 0) {
+            close(fd);
+            throw std::runtime_error("Error call 'fstat'!");
+        }
+
+        mapped = mmap(nullptr, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+        close(fd);
+        if (mapped == MAP_FAILED) {
+            mapped = nullptr;
+            throw std::runtime_error("Error call 'mmap'!");
+        }
+        size = st.st_size;
+    }
+
+    ~MappedELF() {
+        if (mapped) {
+            munmap(mapped, size);
+        }
+    }
+
+    // Get base address via dl_iterate_phdr
+    uint64_t get_base_address_dl() const {
+        struct BaseAddrContext {
+            uint64_t base_addr;
+            bool found;
+        };
+
+        BaseAddrContext ctx = {0, false};
+
+        dl_iterate_phdr(
+            [](struct dl_phdr_info *info, size_t size, void *data) -> int {
+                BaseAddrContext *ctx = (BaseAddrContext *)data;
+                // Main program has an empty name
+                if (info->dlpi_name == nullptr || info->dlpi_name[0] == '\0') {
+                    ctx->base_addr = info->dlpi_addr;
+                    ctx->found = true;
+                    return 1; // Stop iteration
+                }
+                return 0;
+            },
+            &ctx);
+
+        return ctx.base_addr;
+    }
+
+    static uint64_t decode_uleb128(const uint8_t **ptr) {
+        uint64_t result = 0;
+        int shift = 0;
+        uint8_t byte;
+
+        do {
+            byte = **ptr;
+            (*ptr)++;
+            result |= (uint64_t)(byte & 0x7f) << shift;
+            shift += 7;
+        } while (byte & 0x80);
+
+        return result;
+    }
+
+    bool GetSection(std::string_view view, const uint8_t *&data, size_t &size) const {
+        // Find .stack_sizes section immediately
+        Elf64_Ehdr *ehdr = (Elf64_Ehdr *)mapped;
+        Elf64_Shdr *shdr = (Elf64_Shdr *)((char *)mapped + ehdr->e_shoff);
+        Elf64_Shdr *shstrtab = &shdr[ehdr->e_shstrndx];
+        const char *shstrtab_data = (const char *)mapped + shstrtab->sh_offset;
+
+        for (int i = 0; i < ehdr->e_shnum; i++) {
+            const char *name = shstrtab_data + shdr[i].sh_name;
+
+            if (!view.empty() && view.compare(name) == 0) {
+                data = (const uint8_t *)mapped + shdr[i].sh_offset;
+                size = shdr[i].sh_size;
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
+// Structure to hold stack sizes section data
+struct StackSizesSection : public MappedELF {
+
+    const uint8_t *data;
+    size_t size;
+
+    // // Map ELF file and find stack sizes section
+    // const MappedELF elf;
+
+    StackSizesSection() : data(nullptr), size(0) {
+        if (!GetSection(".stack_sizes", data, size)) {
+            throw std::runtime_error("Section '.stack_sizes' not found!");
+        }
+    }
+
+  public:
+    // Helper function to find stack size for a given function address
+    uint64_t getStackSize(void *func_addr) const {
+        if (!data)
+            return 0;
+
+        const uint8_t *ptr = data;
+        const uint8_t *end = data + size;
+
+        // Calculate relative address (as in ELF file)
+        uint64_t relative = (uint64_t)func_addr - get_base_address_dl();
+
+        while (ptr < end) {
+            uint64_t addr = *(uint64_t *)ptr;
+            ptr += 8;
+            uint64_t size = decode_uleb128(&ptr);
+
+            // Compare relative address
+            if (addr == relative) {
+                return size;
+            }
+        }
+        return 0;
+    }
+};
+
+#endif
 
 #endif // STACK_CHECK_H
