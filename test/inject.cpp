@@ -4,16 +4,16 @@
 // RUN: -Xclang -add-plugin -Xclang stack_check \
 // RUN: -Xclang -emit-llvm -O0  \
 // RUN: -Xclang -plugin-arg-stack_check -Xclang verbose \
-// RUN:-c %s -o %p/temp/inject-O0.S  > %p/temp/inject-O0.out \
-// RUN: && FileCheck %s -check-prefix=O0 < %p/temp/inject-O0.S
+// RUN: -c %s -o %p/temp/inject-O0.ll > %p/temp/inject-O0.out \
+// RUN: && FileCheck %s -check-prefix=O0 < %p/temp/inject-O0.ll
 
 // RUN: %clangxx -I%shlibdir -std=c++20 \
 // RUN: -Xclang -load -Xclang %shlibdir/stack_check_clang.so \
 // RUN: -Xclang -add-plugin -Xclang stack_check \
 // RUN: -Xclang -emit-llvm -O3 \
 // RUN: -Xclang -plugin-arg-stack_check -Xclang verbose \
-// RUN: -c %s -o %p/temp/inject-O3.S > %p/temp/inject-O3.out \
-// RUN: && FileCheck %s -check-prefix=O3 < %p/temp/inject-O3.S
+// RUN: -c %s -o %p/temp/inject-O3.ll > %p/temp/inject-O3.out \
+// RUN: && FileCheck %s -check-prefix=O3 < %p/temp/inject-O3.ll
 
 #include "stack_check.h"
 
