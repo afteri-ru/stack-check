@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdint>
 #include <gtest/gtest.h>
 
 #include <array>
@@ -75,3 +76,25 @@ TEST(StackInfoTest2, GetFreeStackSpace) {
     }
 }
 
+[[clang::optnone]] int func_large_stack() {
+    char data[2'000'000] = {0};
+    return 0;
+}
+
+TEST(StackSizesSection, GetFreeStackSpace) {
+    trust::StackSizesSection section;
+    trust::AddrListType all_list = section.getAddrList();
+
+    ASSERT_TRUE(all_list.size() > 0);
+
+    uint64_t stack_max = trust::stack_check::get_stack_limit();
+    EXPECT_LE(2'000'000, stack_max);
+
+    uint64_t stack_min = trust::stack_check::get_stack_limit(nullptr, &all_list);
+    EXPECT_EQ(0, stack_min);
+
+    trust::AddrListType exclude = {(void *)&func_large_stack};
+    uint64_t stack_without_large = trust::stack_check::get_stack_limit(nullptr, &exclude);
+    EXPECT_LE(stack_min, stack_without_large);
+    EXPECT_GT(stack_max, stack_without_large);
+}

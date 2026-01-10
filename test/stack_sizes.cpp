@@ -110,9 +110,13 @@ int main() {
     std::cout << ".stack_sizes section found" << std::endl;
     std::cout << "Size: " << section.size << " bytes" << std::endl;
 
+    trust::AddrListType addrlist = section.getAddrList();
+    std::cout << "\nTotal functions: " << addrlist.size() << std::endl;
+
     // CHECK: Program base address:
     // CHECK-NEXT: .stack_sizes section found
     // CHECK-NEXT: Size: [[#]] bytes
+    // CHECK-NEXT: Total functions: {{[1-9][0-9]*}}
 
     // std::cout << "\nVirtual address    | Real address       | Stack size" << std::endl;
     // std::cout << "-------------------------------------------------------------------" << std::endl;
@@ -243,9 +247,9 @@ int main() {
 }
 
 // SU-O0: stack_sizes.cpp:[[#]]:_Z5func1v   88      static
-// SU-O0-NEXT: stack_sizes.cpp:[[#]]:_Z5func2v   280     static
-// SU-O0-NEXT: stack_sizes.cpp:[[#]]:_Z5func3v   1048    static
-// SU-O0-NEXT: stack_sizes.cpp:[[#]]:_Z18getStackSizeStringB5cxx11R17StackSizesSectionPv 120     static
+// SU-O0: stack_sizes.cpp:[[#]]:_Z5func2v   280     static
+// SU-O0: stack_sizes.cpp:[[#]]:_Z5func3v   1048    static
+// SU-O0: stack_sizes.cpp:[[#]]:_Z18getStackSizeStringB5cxx11RN5trust17StackSizesSectionEPv 120     static
 
 // SU-O0: stack_sizes.cpp:[[#]]:_ZN6SimpleC2Ev      72      static
 // SU-O0: stack_sizes.cpp:[[#]]:_ZN7VirtualC2Ev     120     static
@@ -254,26 +258,26 @@ int main() {
 // SU-O0: stack_sizes.cpp:[[#]]:_ZN6SimpleD2Ev      72      static
 
 // SU-O0: stack_sizes.cpp:[[#]]:_ZN7VirtualD0Ev     24      static
-// SU-O0-NEXT: stack_sizes.cpp:[[#]]:_ZN7Virtual7vmethodEv       120     static
-// SU-O0-NEXT: stack_sizes.cpp:[[#]]:_ZN7DerivedD0Ev     24      static
-// SU-O0-NEXT: stack_sizes.cpp:[[#]]:_ZN7Derived7vmethodEv       232     static
+// SU-O0: stack_sizes.cpp:[[#]]:_ZN7Virtual7vmethodEv       120     static
+// SU-O0: stack_sizes.cpp:[[#]]:_ZN7DerivedD0Ev     24      static
+// SU-O0: stack_sizes.cpp:[[#]]:_ZN7Derived7vmethodEv       232     static
 
 //
 //
 //
 
 // SU-O3: stack_sizes.cpp:[[#]]:_Z5func1v   0       static
-// SU-O3-NEXT: stack_sizes.cpp:[[#]]:_Z5func2v   152     static
-// SU-O3-NEXT: stack_sizes.cpp:[[#]]:_Z5func3v   1048    static
-// SU-O3-NEXT: stack_sizes.cpp:[[#]]:_Z18getStackSizeStringB5cxx11R17StackSizesSectionPv 56      static
-// SU-O3-NEXT: stack_sizes.cpp:[[#]]:main        248     static
+// SU-O3: stack_sizes.cpp:[[#]]:_Z5func2v   152     static
+// SU-O3: stack_sizes.cpp:[[#]]:_Z5func3v   1048    static
+// SU-O3: stack_sizes.cpp:[[#]]:_Z18getStackSizeStringB5cxx11RN5trust17StackSizesSectionEPv 56      static
+// SU-O3: stack_sizes.cpp:[[#]]:main        [[#]]     static
 
 // SU-O3: stack_sizes.cpp:[[#]]:_ZN6Simple6methodEv 56      static
-// SU-O3-NEXT: stack_sizes.cpp:[[#]]:_ZN7Virtual6methodEv        104     static
-// SU-O3-NEXT: stack_sizes.cpp:[[#]]:_ZN7VirtualD2Ev     104     static
-// SU-O3-NEXT: stack_sizes.cpp:[[#]]:_ZN6SimpleD2Ev      56      static
+// SU-O3: stack_sizes.cpp:[[#]]:_ZN7Virtual6methodEv        104     static
+// SU-O3: stack_sizes.cpp:[[#]]:_ZN7VirtualD2Ev     104     static
+// SU-O3: stack_sizes.cpp:[[#]]:_ZN6SimpleD2Ev      56      static
 
 // SU-O3: stack_sizes.cpp:[[#]]:_ZN7VirtualD0Ev     104     static
-// SU-O3-NEXT: stack_sizes.cpp:[[#]]:_ZN7Virtual7vmethodEv       104     static
-// SU-O3-NEXT: stack_sizes.cpp:[[#]]:_ZN7DerivedD0Ev     104     static
-// SU-O3-NEXT: stack_sizes.cpp:[[#]]:_ZN7Derived7vmethodEv       216     static
+// SU-O3: stack_sizes.cpp:[[#]]:_ZN7Virtual7vmethodEv       104     static
+// SU-O3: stack_sizes.cpp:[[#]]:_ZN7DerivedD0Ev     104     static
+// SU-O3: stack_sizes.cpp:[[#]]:_ZN7Derived7vmethodEv       216     static

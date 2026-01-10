@@ -6,7 +6,9 @@ This project is intended to prevent segmentation faults due to stack overflow, w
 
 The main idea is to check the available stack space before calling a protected function, and if it is insufficient, throw a `stack_overflow` program exception, which can be caught and handled within the application without waiting for a segmentation fault caused by a program/thread stack overflow.
 
-The file `stack_check.h` contains the necessary programming primitives for manual use, whereas `stack_check_clang.cpp` implements a Clang plugin that, at the IR code generation stage, automatically inserts calls to stack overflow checking functions before protected functions. Protected functions can be annotated individually in C++ code using an attribute, ~~or they can be specified using a name mask by passing it in the compiler plugin parameters.~~ **\***
+Checking the size of available stack space can be performed by calling the function `stack_info::check_overflow(size_t)` with a specified size, or by using the function `stack_info::check_limit()`, which checks the maximum possible stack size obtained based on data from the `.stack_sizes` segment. For preserving information about the stack sizes for each function, the program must be compiled with the `-fstack-size-section` flag.
+
+The `stack_check.h` file contains the necessary program primitives, and the `stack_check_clang.cpp` file implements a Clang plugin that, during IR code generation, automatically inserts calls to stack overflow checking functions before the protected functions. Protected functions can be marked individually in C++ code using an attribute, ~~or they can be specified using a name mask by passing it in the compiler plugin parameters.~~ **\***
 
 ### Usage examples
 
@@ -128,7 +130,9 @@ Ideally (to minimize overhead), it is best to compute the stack size for all fun
 
 Основная идея заключается в проверке свободного места на стеке перед вызовом защищаемой функции, и если его недостаточно, то выбрасывается программное исключение `stack_overflow`, которое можно перехватить и обработать изнутри приложения, не дожидаясь возникновения ошибки сегментирования из-за переполнения стека программы/потока.
 
-В файле `stack_check.h` находятся необходимые программные примитивы для ручного применения, тогда как в файле `stack_check_clang.cpp` реализован плагин для Clang, который на этапе генерации IR-кода автоматически вставляет вызовы функций контроля стека от переполнения перед защищаемыми функциями. Защищаемые функции могут быть отмечены индивидуально в коде C++ с помощью атрибута, ~~либо их можно указать с помощью маски имён, передав её в параметрах плагина компилятора.~~ **\***
+Проверка размера свободного места на стеке может выполняться с помощью вызова функции `stack_info::check_overflow(size_t)` с указанием конкретного размера либо с помощью функции `stack_info::check_limit()`, которая проверяет максимально возможный размер стека, полученный на основании данных из сегмента `.stack_sizes`. **Для сохранения информации о размерах стека для каждой функции программа должна быть скомпилирована с ключом `-fstack-size-section`.**
+
+В файле `stack_check.h` находятся необходимые программные примитивы, а в файле `stack_check_clang.cpp` реализован плагин для Clang, который на этапе генерации IR-кода автоматически вставляет вызовы функций контроля переполнения стека перед защищаемыми функциями. Защищаемые функции могут быть отмечены индивидуально в коде C++ с помощью атрибута, ~~либо их можно указать с помощью маски имён, передав её в параметрах плагина компилятора.~~ **\***
 
 ### Примеры использования
 

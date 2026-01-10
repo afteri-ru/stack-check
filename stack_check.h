@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
+#include <vector>
 
 /**
  * @def STACK_CHECK_SIZE(...)
@@ -54,15 +55,19 @@ struct stack_overflow : public std::runtime_error {
     stack_overflow(size_t size, const stack_check *stack) : std::runtime_error("Stack overflow"), size(size), info(stack) {}
 };
 
+
 #ifndef STACK_SIZE_LIMIT
-#define STACK_SIZE_LIMIT 4096
+#define STACK_SIZE_LIMIT 1024
 #endif // STACK_SIZE_LIMIT
+
+typedef std::vector<void *> AddrListType;
 
 /*
  * To use, you must define the static variable `const thread_local trust::stack_check trust::stack_check::info`
  */
 struct stack_check {
-    static constexpr size_t limit = STACK_SIZE_LIMIT;
+    static constexpr size_t limit_for_error = STACK_SIZE_LIMIT;
+    const size_t limit;
     void *top;
     void *bottom;
     void *bottom_limit;
@@ -70,12 +75,15 @@ struct stack_check {
 
     static const thread_local stack_check info;
 
-    stack_check() : top(nullptr), bottom(nullptr), bottom_limit(nullptr), frame(nullptr) {
+    stack_check(const AddrListType *include = nullptr, const AddrListType *exclude = nullptr)
+        : limit(0), top(nullptr), bottom(nullptr), bottom_limit(nullptr), frame(nullptr) {
+        const_cast<size_t &>(limit) = get_stack_limit(include, exclude) + limit_for_error;
         get_stack_info(const_cast<stack_check *>(&info)->top, const_cast<stack_check *>(&info)->bottom);
         *const_cast<void **>(&info.bottom_limit) = static_cast<char *>(info.bottom) + limit;
     }
 
     static bool get_stack_info(void *&top, void *&bottom);
+    static size_t get_stack_limit(const AddrListType *include = nullptr, const AddrListType *exclude = nullptr);
 
     static inline size_t get_stack_size() { return static_cast<char *>(info.top) - static_cast<char *>(info.bottom); }
 
@@ -194,6 +202,9 @@ size_t get_free_stack_space() {
 #include <sys/stat.h>
 #include <unistd.h>
 
+namespace trust {
+
+// Get information about the stack size of the current thread
 inline bool trust::stack_check::get_stack_info(void *&top, void *&bottom) {
     pthread_attr_t attr;
     pthread_getattr_np(pthread_self(), &attr);
@@ -208,7 +219,7 @@ inline bool trust::stack_check::get_stack_info(void *&top, void *&bottom) {
     // Explicitly calling control functions prevents the linker from removing
     // them during optimization due to the lack of direct calls in other code.
     check_limit();
-    check_overflow(stack_check::limit);
+    check_overflow(stack_check::limit_for_error);
 
     return top > bottom;
 }
@@ -312,16 +323,32 @@ struct StackSizesSection : public MappedELF {
     const uint8_t *data;
     size_t size;
 
-    // // Map ELF file and find stack sizes section
-    // const MappedELF elf;
-
     StackSizesSection() : data(nullptr), size(0) {
         if (!GetSection(".stack_sizes", data, size)) {
-            throw std::runtime_error("Section '.stack_sizes' not found!");
+            throw std::runtime_error("Section '.stack_sizes' not found! Use the -fstack-size-section option when compiling.");
         }
     }
 
   public:
+    // Get a list of addresses of all functions of an executable file
+    trust::AddrListType getAddrList() {
+        trust::AddrListType result;
+
+        const uint8_t *ptr = data;
+        const uint8_t *end = data + size;
+        uint64_t base_addr = get_base_address_dl();
+
+        while (ptr < end) {
+            uint64_t addr = *(uint64_t *)ptr;
+
+            result.push_back((void *)(addr + base_addr));
+
+            ptr += 8;
+            MappedELF::decode_uleb128(&ptr);
+        }
+        return result;
+    }
+
     // Helper function to find stack size for a given function address
     uint64_t getStackSize(void *func_addr) const {
         if (!data)
@@ -346,6 +373,39 @@ struct StackSizesSection : public MappedELF {
         return 0;
     }
 };
+
+// Get the maximum stack size to check before calling functions
+inline size_t trust::stack_check::get_stack_limit(const trust::AddrListType *include, const trust::AddrListType *exclude) {
+    trust::StackSizesSection stacks;
+    trust::AddrListType all_list;
+    if (!include) {
+        all_list = stacks.getAddrList();
+        include = &all_list;
+    }
+    bool skip;
+    uint64_t max_size = 0;
+    for (size_t i = 0; i < include->size(); i++) {
+        skip = false;
+        if (exclude) {
+            for (size_t pos = 0; pos < exclude->size(); pos++) {
+                if ((*exclude)[pos] == (*include)[i]) {
+                    skip = true;
+                    break;
+                }
+            }
+        }
+        if (!skip) {
+            uint64_t curr_size = stacks.getStackSize((*include)[i]);
+            if (curr_size > max_size) {
+                max_size = curr_size;
+            }
+        }
+    }
+
+    return max_size;
+}
+
+} // namespace trust
 
 #endif
 
