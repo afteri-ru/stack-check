@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <stdexcept>
 #include <vector>
 
@@ -54,7 +55,6 @@ struct stack_overflow : public std::runtime_error {
     const stack_check *info;
     stack_overflow(size_t size, const stack_check *stack) : std::runtime_error("Stack overflow"), size(size), info(stack) {}
 };
-
 
 #ifndef STACK_SIZE_LIMIT
 #define STACK_SIZE_LIMIT 1024
@@ -350,7 +350,7 @@ struct StackSizesSection : public MappedELF {
     }
 
     // Helper function to find stack size for a given function address
-    uint64_t getStackSize(void *func_addr) const {
+    uint64_t getStackSize(void *func_addr, bool *found = nullptr) const {
         if (!data)
             return 0;
 
@@ -367,8 +367,14 @@ struct StackSizesSection : public MappedELF {
 
             // Compare relative address
             if (addr == relative) {
+                if (found) {
+                    *found = true;
+                }
                 return size;
             }
+        }
+        if (found) {
+            *found = false;
         }
         return 0;
     }
@@ -377,10 +383,24 @@ struct StackSizesSection : public MappedELF {
 // Get the maximum stack size to check before calling functions
 inline size_t trust::stack_check::get_stack_limit(const trust::AddrListType *include, const trust::AddrListType *exclude) {
     trust::StackSizesSection stacks;
-    trust::AddrListType all_list;
+    trust::AddrListType all_list = stacks.getAddrList();
     if (!include) {
-        all_list = stacks.getAddrList();
         include = &all_list;
+    } else {
+        bool found;
+        for (auto ptr : *include) {
+            found = false;
+            for (auto func : all_list) {
+                if (ptr == func) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                throw std::runtime_error(std::format(
+                    "The function or class method with address {:#012x} was not found in the application's function list!", (size_t)ptr));
+            }
+        }
     }
     bool skip;
     uint64_t max_size = 0;

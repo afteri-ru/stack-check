@@ -1,9 +1,12 @@
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <gtest/gtest.h>
 
 #include <array>
 #include <iostream>
+#include <stdexcept>
+#include <vector>
 
 #include "stack_check.h"
 
@@ -81,11 +84,41 @@ TEST(StackInfoTest2, GetFreeStackSpace) {
     return 0;
 }
 
+[[clang::optnone]] int func_dyn_stack(const size_t size) {
+    char data[size];
+    for (size_t i = 0; i < size; i++) {
+        data[i] = i;
+    }
+    return 0;
+}
+
 TEST(StackSizesSection, GetFreeStackSpace) {
     trust::StackSizesSection section;
     trust::AddrListType all_list = section.getAddrList();
 
     ASSERT_TRUE(all_list.size() > 0);
+
+    try {
+        std::vector<void *> incude = {nullptr};
+        const trust::stack_check test(&incude);
+        FAIL();
+    } catch (std::runtime_error &err) {
+    }
+
+    try {
+        std::vector<void *> incude = {(void *)&func_large_stack};
+        const trust::stack_check test(&incude);
+    } catch (std::runtime_error &err) {
+        FAIL();
+    }
+
+    bool found;
+    size_t size = section.getStackSize((void *)&func_large_stack, &found);
+    ASSERT_TRUE(found);
+    EXPECT_LE(2'000'000, size);
+
+    ASSERT_EQ(0, section.getStackSize((void *)&func_dyn_stack, &found));
+    ASSERT_FALSE(found);
 
     uint64_t stack_max = trust::stack_check::get_stack_limit();
     EXPECT_LE(2'000'000, stack_max);

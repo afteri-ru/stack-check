@@ -1,4 +1,3 @@
-#include "stack_check_clang.h"
 
 #include "clang/Basic/Diagnostic.h"
 #include "llvm/Support/raw_ostream.h"
@@ -56,30 +55,12 @@
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <dlfcn.h>
+
 using namespace clang;
 using namespace clang::ast_matchers;
-using namespace trust;
 
 namespace {
-
-/**
- * @def Stack check plugin
- *
- * The TrustPlugin class is made as a RecursiveASTVisitor template for the following reasons:
- * - AST traversal occurs from top to bottom through all leaves, which allows to dynamically create and clear context information.
- * Whereas when searching for matches using AST Matcher, MatchCallback only called for the found nodes,
- * but clearing the necessary context information for each call is very expensive.
- * - RecursiveASTVisitor allows interrupting (or repeating) traversal of individual AST node depending on dynamic context information.
- * - Matcher processes AST only for specific specified matchers and analysis of missed (not processed) attributes is difficult for it,
- * whereas RecursiveASTVisitor sequentially traverses all AST nodes regardless of the configured templates.
- *
- * The plugin is used as a static signleton to store context and simplify access from any classes,
- * but is created dynamically to use the context CompilerInstance
- *
- * Traverse ... - can form the current context
- * Visit ... - only analyze data without changing the context
- *
- */
 
 class TrustPlugin;
 static std::unique_ptr<TrustPlugin> plugin;
@@ -356,95 +337,47 @@ enum LogLevel : uint8_t {
 
 class TrustPlugin : public RecursiveASTVisitor<TrustPlugin> {
   public:
-    trust::StringMatcher m_dump_matcher;
-
     const CompilerInstance &m_CI;
 
     TrustPlugin(const CompilerInstance &instance) : m_CI(instance) {}
 
     inline clang::DiagnosticsEngine &getDiag() { return m_CI.getDiagnostics(); }
 
-    template <typename T> static std::string makeHelperString(const T &map) {
-        std::string result;
-        for (auto elem : map) {
-            if (!result.empty()) {
-                result += "', '";
-            }
-            result += elem.first;
-        }
-        result.insert(0, "'");
-        result += "'";
-        return result;
-    }
+    // template <typename T> static std::string makeHelperString(const T &map) {
+    //     std::string result;
+    //     for (auto elem : map) {
+    //         if (!result.empty()) {
+    //             result += "', '";
+    //         }
+    //         result += elem.first;
+    //     }
+    //     result.insert(0, "'");
+    //     result += "'";
+    //     return result;
+    // }
 
-    static std::string makeHelperString(const std::set<std::string> &set) {
-        std::string result;
-        for (auto &elem : set) {
+    // static std::string makeHelperString(const std::set<std::string> &set) {
+    //     std::string result;
+    //     for (auto &elem : set) {
 
-            if (!result.empty()) {
-                result += "', '";
-            }
-            result += elem;
-        }
-        result.insert(0, "'");
-        result += "'";
-        return result;
-    }
+    //         if (!result.empty()) {
+    //             result += "', '";
+    //         }
+    //         result += elem;
+    //     }
+    //     result.insert(0, "'");
+    //     result += "'";
+    //     return result;
+    // }
 
-    static std::string unknownArgumentHelper(const std::string_view arg, const std::set<std::string> &set) {
-        std::string result = "Unknown argument '";
-        result += arg.begin();
-        result += "'. Expected string argument from the following list: ";
-        result += makeHelperString(set);
-        return result;
-    }
-
-    /*
-     *
-     * RecursiveASTVisitor Traverse... template methods for the created plugin context
-     *
-     *
-     *
-     *
-     *
-     */
-
-#define TRAVERSE_CONTEXT(name)                                                                                                             \
-    bool Traverse##name(name *arg) {                                                                                                       \
-        RecursiveASTVisitor<TrustPlugin>::Traverse##name(arg);                                                                             \
-        return true;                                                                                                                       \
-    }
-
-    TRAVERSE_CONTEXT(MemberExpr);
-    TRAVERSE_CONTEXT(CallExpr);
-    TRAVERSE_CONTEXT(CXXMemberCallExpr);
-
-    /*
-     * Creating a plugin context for classes
-     */
-
-    bool TraverseCXXRecordDecl(CXXRecordDecl *decl) {
-
-        if (decl->hasDefinition()) {
-        }
-
-        return RecursiveASTVisitor<TrustPlugin>::TraverseCXXRecordDecl(decl);
-    }
-
-    /*
-     * All AST analysis starts with TraverseDecl
-     *
-     */
-    bool TraverseDecl(Decl *D) {
-
-        if (const FunctionDecl *func = dyn_cast_or_null<FunctionDecl>(D)) {
-            if (func->isDefined()) {
-            }
-        }
-
-        return RecursiveASTVisitor<TrustPlugin>::TraverseDecl(D);
-    }
-}; // namespace
+    // static std::string unknownArgumentHelper(const std::string_view arg, const std::set<std::string> &set) {
+    //     std::string result = "Unknown argument '";
+    //     result += arg.begin();
+    //     result += "'. Expected string argument from the following list: ";
+    //     result += makeHelperString(set);
+    //     return result;
+    // }
+};
 
 /*
  *
@@ -474,9 +407,17 @@ class TrustPluginASTAction : public PluginASTAction {
 
         std::unique_ptr<TrustPluginASTConsumer> obj = std::unique_ptr<TrustPluginASTConsumer>(new TrustPluginASTConsumer());
 
-        Compiler.getCodeGenOpts().PassPlugins.push_back("stack_check_clang.so");
+        Compiler.getCodeGenOpts().PassPlugins.push_back(getThisPluginPath());
 
         return obj;
+    }
+
+    static std::string getThisPluginPath() {
+        Dl_info info;
+        if (dladdr((void *)&stack_check_size, &info) && info.dli_fname) {
+            return std::string(info.dli_fname); // полный путь к .so/.dylib (как знает загрузчик)
+        }
+        return {};
     }
 
     template <class... Args> void PrintColor(raw_ostream &out, std::format_string<Args...> fmt, Args &&...args) {
@@ -506,9 +447,6 @@ class TrustPluginASTAction : public PluginASTAction {
                 second = "";
             }
 
-            // std::string message = plugin->processArgs(first, second, SourceLocation());
-
-            // if (!message.empty()) {
             if (first.compare("verbose") == 0 || first.compare("v") == 0) {
                 is_verbose = true;
                 PrintColor(llvm::outs(), "Enable verbose mode");
@@ -516,14 +454,6 @@ class TrustPluginASTAction : public PluginASTAction {
                 llvm::errs() << "Unknown plugin argument: '" << elem << "'!\n";
                 return false;
             }
-            // } else {
-            //     if (first.compare("level") == 0) {
-            //         // ok
-            //     } else {
-            //         llvm::errs() << "The argument '" << elem << "' is not supported via command line!\n";
-            //         return false;
-            //     }
-            // }
         }
         return true;
     }
@@ -536,8 +466,9 @@ void Verbose(SourceLocation loc, std::string_view msg) {
         size_t pos = str.find(' ');
         if (pos == std::string::npos) {
             llvm::outs() << str;
+        } else {
+            llvm::outs() << str.substr(0, pos);
         }
-        llvm::outs() << str.substr(0, pos);
 
         llvm::outs() << ": verbose: " << msg.begin() << "\n";
     }
